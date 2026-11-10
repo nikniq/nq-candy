@@ -28,9 +28,11 @@ Two scripts, one for each end:
 - `deploy.sh` runs **on the server** from the app root. It pulls, installs composer dependencies when the lockfile moved, snapshots the SQLite database, migrates, rebuilds caches and verifies.
   - `./deploy.sh --verify` only runs the checks.
   - `./deploy.sh --rollback` returns the code to the commit before the last deploy (migrations are not reverted).
+  - `./deploy.sh --status` shows what is live and recent deploys; `./deploy.sh --restore` lists and restores database snapshots.
+  - If the server's command-line `php` is older than 8.3, name the right binary in `deploy.conf` (see the script header).
 - `cx.sh` runs **locally** and drives the server over SSH. Copy `vars.sh.example` to `vars.sh` and fill in your host first.
   - `./cx.sh` shows the menu; `./cx.sh 20` runs an option directly.
-  - `27` first-time server setup, `20` deploy, `28` rollback, `30` health check, `31`/`32` logs, `40`–`42` leaderboard, `72`/`73` maintenance mode.
+  - `29` server preflight, `27` first-time server setup, `12` local tests, `20` deploy, `28` rollback, `30` health check, `31`/`32` logs, `40`–`42` leaderboard, `72`/`73` maintenance mode.
 
 ## Tests
 

@@ -13,6 +13,17 @@
 # See vars.sh.example. vars.sh is gitignored because it holds host and
 # account details.
 #
+# Version 1.2
+# - REMOTE_PHP / REMOTE_COMPOSER in vars.sh for hosts whose command-line php
+#   is not the version the site runs on; 27 passes them on to deploy.sh
+# - 29 preflight: php version and extensions, git, composer, disk, paths —
+#   run it before 27
+# - 12 runs the tests locally, 13 serves the game locally; 20 runs the tests
+#   first and will not deploy a failing build without being told to
+# - 22 also shows the server's own deploy history; 43 restores a snapshot
+# - refuses to run while vars.sh still holds the example placeholders
+# - an unrecognised option now exits non-zero
+#
 # Version 1.1
 # - direct runs (./cx.sh 20) no longer clear the screen or print the whole
 #   menu; `./cx.sh help` prints it without prompting
@@ -48,6 +59,14 @@ APP_URL="${APP_URL:-https://$PROJECT}"       # what option 30 health-checks
 LOG_OUTPUT="${LOG_OUTPUT:-./log/remote.out}"
 REPO_URL="${REPO_URL:-$(git remote get-url origin 2>/dev/null)}"   # what option 27 clones
 REPO_BRANCH="${REPO_BRANCH:-main}"
+REMOTE_PHP="${REMOTE_PHP:-php}"                  # php binary to use on the server
+REMOTE_COMPOSER="${REMOTE_COMPOSER:-composer}"   # composer command on the server
+
+case "$REMOTE_HOST$REMOTE_USER" in
+  *your-host.example.com*|*your-ssh-user*)
+    echo "vars.sh still has the example placeholders — fill in REMOTE_USER and REMOTE_HOST."
+    exit 1 ;;
+esac
 
 # This script drives the server from outside. Run on the server it would
 # try to ssh to itself, and option 99 would rewrite the server's dotfiles.
@@ -120,15 +139,20 @@ show_menu() {
   echo "Other sites configured: ${SITES[*]}"
   echo What do you want to do?
   echo -------------------------------------------------------------
+  echo "LOCAL — on this machine"
+  echo "12 : TEST: run the test suite"
+  echo "13 : SERVE: play the game at http://localhost:8000"
+  echo ----------------------------------------------
   echo "ROUTINE — day to day"
-  echo "20 : DEPLOY: pull + composer + migrate + caches + verify on $PROJECT"
-  echo "22 : WHAT'S LIVE: compare the server's HEAD with local"
+  echo "20 : DEPLOY: test, then pull + composer + migrate + caches + verify on $PROJECT"
+  echo "22 : WHAT'S LIVE: server status, deploy history, and how it compares with local"
   echo "23 : MIGRATIONS: status (what is pending on the server)"
   echo "24 : CACHES: refresh config/routes/views"
   echo "25 : CACHES: clear everything (when a cached value looks stale)"
   echo "26 : COMPOSER: install production dependencies"
   echo "27 : FIRST-TIME SETUP: clone, .env, key and first deploy on the server"
   echo "28 : ROLLBACK: return the server to the commit before the last deploy"
+  echo "29 : PREFLIGHT: is the server ready? php, extensions, git, composer, disk"
   echo ----------------------------------------------
   echo DIAGNOSE
   echo "30 : HEALTH: $APP_URL — page, /up, game assets, leaderboard"
@@ -143,6 +167,7 @@ show_menu() {
   echo "40 : LEADERBOARD: top scores on $APP_URL"
   echo "41 : LEADERBOARD: download the SQLite database to ./files"
   echo "42 : LEADERBOARD: list the snapshots deploy.sh keeps on the server"
+  echo "43 : LEADERBOARD: restore a snapshot  [replaces the live scores]"
   echo ----------------------------------------------
   echo "QUEUE & SCHEDULE"
   echo "50 : QUEUE: list failed jobs"
@@ -201,6 +226,24 @@ case "$SELECTION" in
 # Note variable is quoted.
 
   #-------------------------------------------------------------
+  # LOCAL
+  #-------------------------------------------------------------
+
+  "12" )
+  banner "TEST: local test suite"
+  php artisan test || exit 1
+  ;;
+
+
+  "13" )
+  banner "SERVE: http://localhost:8000 (Ctrl-C to stop)"
+  [ -f database/database.sqlite ] || touch database/database.sqlite
+  php artisan migrate --graceful
+  php artisan serve
+  ;;
+
+
+  #-------------------------------------------------------------
   # ROUTINE
   #-------------------------------------------------------------
 
@@ -228,6 +271,13 @@ case "$SELECTION" in
   fi
   echo "Local HEAD : $(git log --oneline -1)"
   echo
+  # Cheap, and the only thing between a broken commit and the live site.
+  if ! php artisan test --compact; then
+    echo
+    read -r -p "✗ Tests failed. Type 'deploy anyway' to continue: " reply
+    [ "$reply" = "deploy anyway" ] || { echo "Skipped $SELECTION"; exit 1; }
+  fi
+  echo
   if remote_tty "./deploy.sh"; then
     log_history "Deployed $PROJECT at $(git rev-parse --short HEAD)"
     echo
@@ -245,7 +295,7 @@ case "$SELECTION" in
   "22" )
   banner "WHAT'S LIVE on $PROJECT"
   echo "--- server ---"
-  remote "git log --oneline -3 && git status --short"
+  remote "./deploy.sh --status"
   echo
   echo "--- local ---"
   git log --oneline -3
@@ -266,13 +316,13 @@ case "$SELECTION" in
   banner "MIGRATIONS: status on $PROJECT"
   # A pull without a migrate is the classic cause of a production 500
   # ("Base table or view not found"), so this is the check for it.
-  remote "php artisan migrate:status"
+  remote "$REMOTE_PHP artisan migrate:status"
   ;;
 
 
   "24" )
   banner "CACHES: refresh on $PROJECT"
-  remote "php artisan optimize"
+  remote "$REMOTE_PHP artisan optimize"
   log_history "Refreshed caches on $PROJECT"
   ;;
 
@@ -282,7 +332,7 @@ case "$SELECTION" in
   # The counterpart to 24. optimize:clear drops the config, route, view and
   # event caches; a stale config cache is why an .env change can appear to
   # have been ignored. deploy.sh rebuilds them, so run 24 after this.
-  remote "php artisan optimize:clear"
+  remote "$REMOTE_PHP artisan optimize:clear"
   log_history "Cleared all caches on $PROJECT"
   ;;
 
@@ -292,7 +342,7 @@ case "$SELECTION" in
   # deploy.sh now does this itself whenever composer.lock moves. This is for
   # the case where it warned that composer was not on PATH, or where a
   # dependency needs reinstalling without a deploy.
-  remote_tty "composer install --no-dev --optimize-autoloader --no-interaction"
+  remote_tty "$REMOTE_COMPOSER install --no-dev --optimize-autoloader --no-interaction"
   log_history "Installed composer dependencies on $PROJECT"
   ;;
 
@@ -324,8 +374,12 @@ case "$SELECTION" in
     else
       echo '✓ .env already present — left as it is'
     fi
-    if [ ! -f vendor/autoload.php ]; then composer install --no-dev --optimize-autoloader --no-interaction; fi
-    if [ -n \"\$NEW_ENV\" ]; then php artisan key:generate --force; fi
+    if [ ! -f deploy.conf ] && [ '$REMOTE_PHP$REMOTE_COMPOSER' != 'phpcomposer' ]; then
+      printf 'PHP_BIN=\"%s\"\nCOMPOSER_BIN=\"%s\"\n' '$REMOTE_PHP' '$REMOTE_COMPOSER' > deploy.conf
+      echo '✓ deploy.conf written with the php and composer from vars.sh'
+    fi
+    if [ ! -f vendor/autoload.php ]; then $REMOTE_COMPOSER install --no-dev --optimize-autoloader --no-interaction; fi
+    if [ -n \"\$NEW_ENV\" ]; then $REMOTE_PHP artisan key:generate --force; fi
     chmod +x deploy.sh
     ./deploy.sh"
   log_history "First-time setup of $PROJECT"
@@ -338,6 +392,32 @@ case "$SELECTION" in
   # own confirmation. Code only — it says so, and points at the snapshots.
   remote_tty "./deploy.sh --rollback"
   log_history "Rolled back $PROJECT"
+  ;;
+
+
+  "29" )
+  banner "PREFLIGHT: $REMOTE"
+  # Works before anything is installed, so it cannot lean on deploy.sh.
+  # The command-line php is checked because that is what artisan and
+  # composer run under — it is often older than the one serving the site.
+  $APP_SSH "$REMOTE" "
+    ok()   { echo \"  ✓ \$1\"; }
+    fail() { echo \"  ✗ \$1\"; }
+    if $REMOTE_PHP -r 'exit(version_compare(PHP_VERSION, \"8.3.0\", \">=\") ? 0 : 1);' 2>/dev/null; then
+      ok \"$REMOTE_PHP is \$($REMOTE_PHP -r 'echo PHP_VERSION;')\"
+    else
+      fail \"$REMOTE_PHP is missing or older than 8.3: \$($REMOTE_PHP -v 2>/dev/null | head -n 1) — set REMOTE_PHP in vars.sh\"
+    fi
+    for ext in pdo_sqlite mbstring openssl tokenizer xml ctype fileinfo curl; do
+      $REMOTE_PHP -m 2>/dev/null | grep -qi \"^\$ext\\\$\" && ok \"php extension \$ext\" || fail \"php extension \$ext missing\"
+    done
+    command -v git >/dev/null 2>&1 && ok \"\$(git --version)\" || fail 'git not found'
+    command -v ${REMOTE_COMPOSER%% *} >/dev/null 2>&1 && ok \"composer: \$($REMOTE_COMPOSER --version 2>/dev/null | head -n 1)\" || fail '$REMOTE_COMPOSER not found — set REMOTE_COMPOSER in vars.sh'
+    [ -d ~/$REMOTE_APP ] && ok 'app root ~/$REMOTE_APP exists' || echo '  · app root ~/$REMOTE_APP does not exist yet (27 creates it)'
+    [ -d ~/$REMOTE_APP/.git ] && ok 'repository already checked out' || echo '  · no repository there yet (27 clones it)'
+    [ -f ~/$REMOTE_APP/.env ] && ok '.env present' || echo '  · no .env yet (27 creates it)'
+    echo \"  · free space: \$(df -h ~ 2>/dev/null | tail -n 1 | awk '{print \$4}')\"
+  "
   ;;
 
 
@@ -371,7 +451,7 @@ case "$SELECTION" in
   need_param "artisan command (without the word 'artisan')"
   # On some shared hosts the SSH php is the cgi-fcgi binary, where
   # interactive commands like tinker die; non-interactive ones are fine.
-  remote_tty "php artisan $PARAM2"
+  remote_tty "$REMOTE_PHP artisan $PARAM2"
   log_history "Ran artisan $PARAM2 on $PROJECT"
   ;;
 
@@ -444,19 +524,30 @@ case "$SELECTION" in
   ;;
 
 
+  "43" )
+  banner "LEADERBOARD: restore a snapshot on $PROJECT"
+  remote "./deploy.sh --restore"
+  echo
+  need_param "Snapshot file name"
+  # deploy.sh snapshots the current database first and asks for its own confirmation.
+  remote_tty "./deploy.sh --restore '$PARAM2'"
+  log_history "Restored leaderboard snapshot $PARAM2 on $PROJECT"
+  ;;
+
+
   #-------------------------------------------------------------
   # QUEUE & SCHEDULE
   #-------------------------------------------------------------
 
   "50" )
   banner "QUEUE: failed jobs"
-  remote "php artisan queue:failed"
+  remote "$REMOTE_PHP artisan queue:failed"
   ;;
 
 
   "51" )
   banner "QUEUE: retry all failed jobs"
-  remote_tty "php artisan queue:retry all"
+  remote_tty "$REMOTE_PHP artisan queue:retry all"
   log_history "Retried failed jobs on $PROJECT"
   ;;
 
@@ -464,13 +555,13 @@ case "$SELECTION" in
   "52" )
   banner "QUEUE: drain now"
   # --stop-when-empty so it exits instead of daemonising.
-  remote_tty "php artisan queue:work database --stop-when-empty --max-time=120"
+  remote_tty "$REMOTE_PHP artisan queue:work database --stop-when-empty --max-time=120"
   ;;
 
 
   "53" )
   banner "SCHEDULE on $PROJECT"
-  remote "php artisan schedule:list"
+  remote "$REMOTE_PHP artisan schedule:list"
   ;;
 
 
@@ -495,14 +586,14 @@ case "$SELECTION" in
   banner "MAINTENANCE MODE: ON"
   confirm "$APP_URL will start returning 503 to everyone until you run 73."
   # --retry sets Retry-After so crawlers come back rather than de-indexing.
-  remote_tty "php artisan down --retry=60"
+  remote_tty "$REMOTE_PHP artisan down --retry=60"
   log_history "Maintenance mode ON for $PROJECT"
   ;;
 
 
   "73" )
   banner "MAINTENANCE MODE: OFF"
-  remote_tty "php artisan up"
+  remote_tty "$REMOTE_PHP artisan up"
   log_history "Maintenance mode OFF for $PROJECT"
   ;;
 
@@ -733,7 +824,8 @@ case "$SELECTION" in
    # Default option.
    # Empty input (hitting RETURN) fits here, too.
    echo
-   echo "Not a recognized option."
+   echo "Not a recognized option. './cx.sh help' lists them."
+   exit 2
   ;;
 
 esac

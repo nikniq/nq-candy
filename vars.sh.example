@@ -31,6 +31,12 @@ APP_URL="https://$PROJECT"
 # REPO_URL="https://github.com/you/nq-candy.git"
 # REPO_BRANCH="main"
 
+# php and composer to use ON THE SERVER. On shared hosting the command-line
+# `php` is often older than the version the site runs on (which .htaccess
+# picks) — `./cx.sh 29` tells you. Leave unset if plain php/composer work.
+# REMOTE_PHP="/usr/local/bin/php85"
+# REMOTE_COMPOSER="/usr/local/bin/php85 \$HOME/composer.phar"
+
 # --- Tooling -------------------------------------------------------------
 # Kept as variables so you can add flags once (e.g. -p PORT, -i KEY).
 APP_SSH="ssh -p $REMOTE_PORT"

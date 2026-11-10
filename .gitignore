@@ -28,6 +28,7 @@ Thumbs.db
 
 # cx.sh local assistant — host/account settings and its local logs, never committed
 vars.sh
+deploy.conf
 /log
 /files
 /shell
