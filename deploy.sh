@@ -18,6 +18,11 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
+# Everything below sits inside one { … } block, closed on the last line.
+# bash reads a script as it runs it, and `git pull` can replace this very
+# file mid-run; the block forces the whole script to be parsed up front.
+{
+
 PREV_FILE=storage/app/deploy-prev      # commit the last deploy started from
 BACKUP_DIR=storage/app/backups         # SQLite snapshots taken before migrating
 KEEP_BACKUPS=10
@@ -26,7 +31,7 @@ STEP="start"
 
 step() { STEP="$1"; echo "→ $1"; }
 
-env_value() { grep -E "^$1=" .env 2>/dev/null | tail -n 1 | cut -d= -f2- | tr -d '"'"'"; }
+env_value() { grep -E "^$1=" .env 2>/dev/null | tail -n 1 | cut -d= -f2- | tr -d '"'"'" || true; }
 
 #---------------------------------------------------------------
 # Checks — shared by a normal deploy, --verify and --rollback
@@ -194,3 +199,5 @@ verify || { echo "✗ now on $(git log --oneline -1), but checks failed — see 
 
 echo "✓ deployed $(git log --oneline -1) in $(( $(date +%s) - STARTED ))s"
 [ "$BEFORE" = "$AFTER" ] || echo "  undo with: ./deploy.sh --rollback   (back to $(git rev-parse --short "$BEFORE"))"
+exit 0
+}
