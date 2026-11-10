@@ -25,3 +25,9 @@ _ide_helper.php
 Homestead.json
 Homestead.yaml
 Thumbs.db
+
+# cx.sh local assistant — host/account settings and its local logs, never committed
+vars.sh
+/log
+/files
+/shell

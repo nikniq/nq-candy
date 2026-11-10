@@ -19,17 +19,12 @@
         <section class="play">
             <div class="hud">
                 <div class="stat"><span>Level</span><b id="level">1</b></div>
-                <div class="stat wide"><span>Score</span><b id="score">0</b></div>
-                <div class="stat"><span>Target</span><b id="target">0</b></div>
+                <div class="stat"><span>Score</span><b id="score">0</b></div>
+                <div class="stat wide"><span>Goal</span><b id="goal"></b></div>
                 <div class="stat"><span>Moves</span><b id="moves">0</b></div>
             </div>
 
-            <div class="progress" aria-hidden="true">
-                <div id="bar"></div>
-                <i class="star" id="star1" style="left:50%">★</i>
-                <i class="star" id="star2" style="left:75%">★</i>
-                <i class="star" id="star3" style="left:100%">★</i>
-            </div>
+            <div class="progress" aria-hidden="true"><div id="bar"></div></div>
 
             <div class="board-wrap" id="wrap">
                 <div id="board" aria-label="Game board"></div>
@@ -38,6 +33,8 @@
             </div>
 
             <div class="actions">
+                <button id="hammer" class="btn ghost" title="Smash any one candy — costs no move">🔨 Hammer <b id="hammerN">0</b></button>
+                <button id="shuffle" class="btn ghost" title="Shuffle the whole board — costs no move">🔀 Shuffle <b id="shuffleN">0</b></button>
                 <button id="hintBtn" class="btn ghost">💡 Hint</button>
                 <button id="restart" class="btn ghost">↻ New run</button>
             </div>
@@ -53,10 +50,11 @@
                 <h2>How to play</h2>
                 <ul class="howto">
                     <li>Swap two neighbours (drag, swipe, or tap-tap) to line up <b>3+</b> of a kind.</li>
-                    <li><b>4 in a row</b> makes a striped <b>Rocket</b> that clears a whole line.</li>
-                    <li>An <b>L or T</b> makes a <b>Bomb</b> that blasts its neighbours.</li>
-                    <li><b>5 in a row</b> makes a <b>Rainbow</b> — swap it with any candy to clear that colour.</li>
-                    <li>Hit the target before you run out of moves. Chain reactions multiply your score!</li>
+                    <li><b>4 in a row</b> makes a striped <b>Rocket</b>, an <b>L or T</b> makes a <b>Bomb</b>, and <b>5 in a row</b> makes a <b>Rainbow</b>. Swap two specials together for a bigger bang.</li>
+                    <li>Each level has a goal: reach a <b>score</b>, <b>collect</b> candies, or break the <b>frosting</b> 🧊 by matching on top of it.</li>
+                    <li>Finish early and your spare moves explode in a <b>sugar finale</b> — and earn more stars.</li>
+                    <li>Winning earns a <b>🔨 Hammer</b>; three stars adds a <b>🔀 Shuffle</b>.</li>
+                    <li>Keyboard: arrows move, <b>Enter</b> grabs, arrow swaps, <b>H</b> hints.</li>
                 </ul>
             </div>
         </aside>

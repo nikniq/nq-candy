@@ -1,0 +1,51 @@
+#!/bin/bash
+#================================================================
+# Settings for cx.sh (the LOCAL assistant). Copy to vars.sh and fill in:
+#
+#   cp vars.sh.example vars.sh
+#
+# vars.sh is gitignored — it names hosts and accounts, so it stays out of
+# the repo. This example carries placeholders only.
+#================================================================
+
+# --- Identity ------------------------------------------------------------
+PROJECT="candy.example.com"               # project dir under ~/.ssh/remote/ and ~/www/
+REMOTE_USER="your-ssh-user"
+REMOTE_HOST="your-host.example.com"
+REMOTE="$REMOTE_USER@$REMOTE_HOST"
+REMOTE_PORT="22"                     # many shared hosts use a different port
+
+# Other sites this script can act on (shown in the menu banner).
+SITES=("candy.example.com")
+
+# App root on the server, relative to ~. deploy.sh, .env, storage/ and
+# public_html/ (the web server's document root) live here. cx.sh defaults this to www/$PROJECT if you leave it unset.
+REMOTE_APP="www/$PROJECT"
+
+# What option 30 health-checks. Public URL, so the check covers DNS and TLS
+# as well as PHP. Defaults to https://$PROJECT.
+APP_URL="https://$PROJECT"
+
+# What option 27 (first-time setup) clones onto the server. Defaults to this
+# checkout's origin remote and the main branch if left unset.
+# REPO_URL="https://github.com/you/nq-candy.git"
+# REPO_BRANCH="main"
+
+# --- Tooling -------------------------------------------------------------
+# Kept as variables so you can add flags once (e.g. -p PORT, -i KEY).
+APP_SSH="ssh -p $REMOTE_PORT"
+APP_SCP="scp -P $REMOTE_PORT"
+APP_ANSIBLE="ansible"
+
+# --- Ansible (options 04 / 10) -------------------------------------------
+ANSIBLE_USER="$REMOTE_USER"
+ANSIBLE_INVENTORY="$HOME/.ssh/remote/$PROJECT/inventory.ini"
+ANSIBLE_CLUSTER="all"
+
+# --- Local paths ---------------------------------------------------------
+# Where option 99 copies its baseline scripts/dotfiles from.
+LOCAL_SCRIPTS_DEFAULT="$HOME/.ssh/remote/default"
+# Appended to by options that tee remote output.
+LOG_OUTPUT="./log/remote.out"
+# Directory to return to after option 99 cd's into ~/.ssh.
+TEMP_PWD="$PWD"

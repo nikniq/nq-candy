@@ -56,6 +56,8 @@
             toggle() { muted = !muted; store.set('muted', muted ? '1' : '0'); return muted; },
             swap() { tone(520, 0.08, 'sine', 0.08, 0, 700); },
             bad() { tone(200, 0.16, 'square', 0.06, 0, 140); },
+            tick(i) { tone(600 + i * 60, 0.09, 'triangle', 0.1); },
+            crack() { tone(1400, 0.08, 'square', 0.04, 0, 2400); },
             match(combo) {
                 const base = 440 * 2 ** ((Math.min(combo, 8) - 1) * 2 / 12);
                 tone(base, 0.12, 'triangle');
@@ -68,13 +70,52 @@
     })();
 
     /* ---------- state ---------- */
-    let grid = null;
-    let level = 1, score = 0, total = 0, moves = 0, target = 0;
+    let grid = null, frost = null, frostEls = null;
+    let level = 1, score = 0, shown = 0, total = 0, moves = 0, startMoves = 0, types = TYPES;
+    let goal = { kind: 'score', target: 1 };
+    let boosters = { hammer: 2, shuffle: 1 };
     let busy = false, over = true, combo = 1, selected = null, hintTimer = null, hinted = [];
-    let reachedTarget = false;
+    let armed = false, lastWon = null, raf = 0;
 
-    const levelCfg = (n) => ({ moves: 20, target: 3000 + (n - 1) * 600 });
     const typeAt = (r, c) => (inside(r, c) && grid[r][c] ? grid[r][c].type : -1);
+
+    /* ---------- levels ---------- */
+    function frostPattern(n) {
+        const variant = (Math.floor(n / 3) + 3) % 4; // level 3 starts with the easy centre block
+        const on = [
+            (r, c) => r >= 2 && r <= 5 && c >= 2 && c <= 5,
+            (r, c) => r >= 5 && c >= 1 && c <= 6,
+            (r, c) => r >= 1 && r <= 6 && (c === 1 || c === 2 || c === 5 || c === 6),
+            (r, c) => Math.abs(r - 3.5) + Math.abs(c - 3.5) <= 3,
+        ][variant];
+        const thick = n >= 12;
+        return Array.from({ length: SIZE }, (_, r) => Array.from({ length: SIZE }, (_, c) =>
+            (on(r, c) ? (thick && (r + c) % 2 === 0 ? 2 : 1) : 0)));
+    }
+
+    // Levels rotate through three goals: 1 score, 2 collect, 3 frosting, 4 score, ...
+    function levelCfg(n) {
+        const kind = ['frost', 'score', 'collect'][n % 3];
+        const cfg = { kind, moves: 20, types: n <= 2 ? 5 : 6 };
+        if (kind === 'score') cfg.target = Math.min(11000, 3000 + (n - 1) * 450);
+        if (kind === 'collect') {
+            const k = n >= 8 ? 3 : 2;
+            const each = Math.min(k === 2 ? 26 : 19, (k === 2 ? 16 : 13) + Math.floor(n / 3));
+            const pool = [...Array(cfg.types).keys()];
+            cfg.need = {};
+            for (let i = 0; i < k; i++) cfg.need[pool.splice(rand(pool.length), 1)[0]] = each;
+        }
+        if (kind === 'frost') { cfg.frost = frostPattern(n); cfg.moves = n >= 12 ? 30 : 24; }
+        return cfg;
+    }
+
+    function goalLeft() {
+        if (goal.kind === 'score') return Math.max(0, goal.target - score);
+        if (goal.kind === 'collect') return Object.values(goal.need).reduce((a, b) => a + b, 0);
+        return frost.flat().reduce((a, b) => a + b, 0);
+    }
+
+    const goalMet = () => goalLeft() === 0;
 
     /* ---------- tiles ---------- */
     function place(t, r, c) {
@@ -101,16 +142,28 @@
         fresh.forEach(([t, r, c]) => place(t, r, c));
     }
 
-    function buildBoard() {
+    function buildBoard(cfg) {
         if (grid) grid.forEach((row) => row.forEach((t) => t && t.el.remove()));
+        if (frostEls) frostEls.flat().forEach((el) => el && el.remove());
+
+        frost = cfg.frost || Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
+        frostEls = frost.map((row, r) => row.map((n, c) => {
+            if (!n) return null;
+            const el = h('div', { className: 'frost f' + n });
+            el.style.left = (c * 100) / SIZE + '%';
+            el.style.top = (r * 100) / SIZE + '%';
+            boardEl.appendChild(el);
+            return el;
+        }));
+
         const fresh = [];
         do {
-            if (grid) fresh.splice(0).forEach(([t]) => t.el.remove());
+            fresh.splice(0).forEach(([t]) => t.el.remove());
             grid = Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
             for (let r = 0; r < SIZE; r++) {
                 for (let c = 0; c < SIZE; c++) {
                     let type;
-                    do { type = rand(TYPES); } while (
+                    do { type = rand(types); } while (
                         (typeAt(r, c - 1) === type && typeAt(r, c - 2) === type) ||
                         (typeAt(r - 1, c) === type && typeAt(r - 2, c) === type)
                     );
@@ -119,6 +172,17 @@
             }
         } while (!findMove());
         dropIn(fresh);
+    }
+
+    function hitFrost(r, c) {
+        const el = frostEls[r][c];
+        frost[r][c]--;
+        sfx.crack();
+        if (frost[r][c] > 0) { el.className = 'frost f' + frost[r][c]; return; }
+        frostEls[r][c] = null;
+        if (FAST) { el.remove(); return; }
+        el.classList.add('gone');
+        setTimeout(() => el.remove(), 350);
     }
 
     /* ---------- match finding ---------- */
@@ -189,23 +253,57 @@
         grid[b.r][b.c] = t;
     }
 
-    function findMove() {
+    function eachPair(fn) {
         for (let r = 0; r < SIZE; r++) {
             for (let c = 0; c < SIZE; c++) {
                 for (const [dr, dc] of [[0, 1], [1, 0]]) {
                     const a = { r, c }, b = { r: r + dr, c: c + dc };
-                    if (!inside(b.r, b.c)) continue;
-                    const ta = grid[a.r][a.c], tb = grid[b.r][b.c];
-                    if (!ta || !tb) continue;
-                    if (ta.special === 'rainbow' || tb.special === 'rainbow' || (ta.special && tb.special)) return [a, b];
-                    rawSwap(a, b);
-                    const ok = matchAt(a.r, a.c) || matchAt(b.r, b.c);
-                    rawSwap(a, b);
-                    if (ok) return [a, b];
+                    if (inside(b.r, b.c) && grid[a.r][a.c] && grid[b.r][b.c] && fn(a, b) === false) return;
                 }
             }
         }
-        return null;
+    }
+
+    const isCombo = (ta, tb) => ta.special === 'rainbow' || tb.special === 'rainbow' || !!(ta.special && tb.special);
+
+    function findMove() {
+        let found = null;
+        eachPair((a, b) => {
+            let ok = isCombo(grid[a.r][a.c], grid[b.r][b.c]);
+            if (!ok) {
+                rawSwap(a, b);
+                ok = matchAt(a.r, a.c) || matchAt(b.r, b.c);
+                rawSwap(a, b);
+            }
+            if (ok) { found = [a, b]; return false; }
+        });
+        return found;
+    }
+
+    // The move that helps the current goal most; used for hints.
+    function bestMove() {
+        let best = null, bestVal = 0;
+        eachPair((a, b) => {
+            let val = 0;
+            if (isCombo(grid[a.r][a.c], grid[b.r][b.c])) val = 14;
+            else {
+                rawSwap(a, b);
+                if (matchAt(a.r, a.c) || matchAt(b.r, b.c)) {
+                    for (const g of findGroups()) {
+                        val += g.cells.size + (g.cells.size >= 4 ? 4 : 0);
+                        for (const k of g.cells) {
+                            const [r, c] = rc(k);
+                            if (frost[r][c]) val += 3;
+                            if (grid[r][c].special) val += 3;
+                        }
+                        if (goal.kind === 'collect' && goal.need[g.type] > 0) val += 2 * g.cells.size;
+                    }
+                }
+                rawSwap(a, b);
+            }
+            if (val > bestVal) { bestVal = val; best = [a, b]; }
+        });
+        return best;
     }
 
     /* ---------- effects ---------- */
@@ -258,17 +356,47 @@
     }
 
     /* ---------- HUD ---------- */
+    function tweenScore() {
+        const el = $('score');
+        if (FAST) { el.textContent = String(score); return; }
+        cancelAnimationFrame(raf);
+        const step = () => {
+            const d = score - shown;
+            shown = Math.abs(d) < 2 ? score : shown + Math.ceil(d * 0.18);
+            el.textContent = shown.toLocaleString();
+            if (shown !== score) raf = requestAnimationFrame(step);
+        };
+        step();
+    }
+
+    function chip(type, n) {
+        return h('span', { className: 'chip' + (n === 0 ? ' done' : '') },
+            h('i', { className: 'mini' }, h('i', { className: 'candy c' + type })),
+            n === 0 ? '✓' : String(n));
+    }
+
     function updateHud(bump) {
         $('level').textContent = level;
-        $('score').textContent = score.toLocaleString();
-        $('target').textContent = target.toLocaleString();
         $('moves').textContent = moves;
-        $('moves').classList.toggle('low', moves <= 5);
-        $('bar').style.width = Math.min(100, (score / (target * 2)) * 100) + '%';
-        $('star1').classList.toggle('on', score >= target);
-        $('star2').classList.toggle('on', score >= target * 1.5);
-        $('star3').classList.toggle('on', score >= target * 2);
+        $('moves').classList.toggle('low', moves <= 5 && !over);
+        tweenScore();
         if (bump) retrigger($('score'), 'bump');
+
+        const left = goalLeft();
+        const g = $('goal');
+        if (goal.kind === 'score') g.replaceChildren(h('span', { className: 'chip' }, '🎯 ' + goal.target.toLocaleString()));
+        else if (goal.kind === 'collect') g.replaceChildren(...Object.entries(goal.need).map(([t, n]) => chip(Number(t), n)));
+        else g.replaceChildren(h('span', { className: 'chip' + (left ? '' : ' done') }, '🧊 ' + (left || '✓')));
+        $('bar').style.width = Math.min(100, (1 - left / goal.total) * 100) + '%';
+    }
+
+    function renderBoosters() {
+        $('hammerN').textContent = boosters.hammer;
+        $('shuffleN').textContent = boosters.shuffle;
+        $('hammer').disabled = boosters.hammer <= 0;
+        $('shuffle').disabled = boosters.shuffle <= 0;
+        $('hammer').classList.toggle('active', armed);
+        boardEl.classList.toggle('smash', armed);
     }
 
     /* ---------- clearing ---------- */
@@ -317,10 +445,13 @@
             if (!t) continue;
             t.inner.classList.add('pop');
             if (!FAST) particles(r, c, t.type);
+            if (goal.kind === 'collect' && goal.need[t.type] > 0) goal.need[t.type]--;
+            if (frost[r][c] > 0) hitFrost(r, c);
             grid[r][c] = null;
             dead.push(t.el);
             sr += r; sc += c;
         }
+        if (!dead.length) return;
         const gained = dead.length * 60 * combo;
         score += gained;
         updateHud(true);
@@ -356,7 +487,7 @@
                 write--;
             }
             const n = write + 1;
-            for (let r = write; r >= 0; r--) fresh.push([makeTile(r, c, rand(TYPES), null, r - n), r, c]);
+            for (let r = write; r >= 0; r--) fresh.push([makeTile(r, c, rand(types), null, r - n), r, c]);
         }
         dropIn(fresh);
         await wait(T.fall);
@@ -367,14 +498,14 @@
             const groups = findGroups();
             if (!groups.length) return;
             combo++;
-            if (combo >= 2) banner(CHEERS[Math.min(combo, CHEERS.length - 1)] + ' ×' + combo);
+            banner(CHEERS[Math.min(combo, CHEERS.length - 1)] + ' ×' + combo);
             await clearGroups(groups, []);
             await collapse();
         }
     }
 
-    async function shuffle() {
-        banner('No moves — shuffling!');
+    async function shuffle(text) {
+        banner(text);
         const tiles = grid.flat();
         for (let tries = 0; tries < 200; tries++) {
             for (let i = tiles.length - 1; i > 0; i--) {
@@ -386,7 +517,56 @@
         }
         tiles.forEach((t, i) => place(t, Math.floor(i / SIZE), i % SIZE));
         await wait(450);
+        combo = 1;
         await cascade(); // only matters if no clean arrangement was found
+    }
+
+    // Goal met with moves to spare: each spare move becomes a special, then they all go off.
+    async function finale() {
+        banner('Sugar finale!');
+        await wait(900);
+        const plain = grid.flat().filter((t) => !t.special);
+        for (let i = 0; moves > 0; i++) {
+            moves--;
+            const t = plain.length ? plain.splice(rand(plain.length), 1)[0] : null;
+            if (t) {
+                t.special = ['h', 'v', 'bomb'][rand(3)];
+                paint(t);
+                t.inner.classList.add('spawn');
+            } else score += 500;
+            sfx.tick(i);
+            updateHud();
+            await wait(110);
+        }
+        await wait(350);
+        for (let round = 0; round < 6; round++) {
+            const kill = new Set();
+            grid.forEach((row, r) => row.forEach((t, c) => { if (t.special) kill.add(key(r, c)); }));
+            if (!kill.size) break;
+            combo = 1;
+            await blast(kill);
+            await collapse();
+            await cascade();
+        }
+    }
+
+    // Runs after any action that cleared candies: gravity, chains, then win/lose checks.
+    async function settle() {
+        await collapse();
+        await cascade();
+        if (goalMet()) {
+            const spare = moves / startMoves;
+            const stars = spare >= 0.3 ? 3 : spare >= 0.12 ? 2 : 1;
+            over = true;
+            if (moves > 0) await finale();
+            busy = false;
+            endLevel(true, stars);
+            return;
+        }
+        if (moves <= 0) { busy = false; endLevel(false, 0); return; }
+        if (!findMove()) await shuffle('No moves — shuffling!');
+        busy = false;
+        armHint();
     }
 
     /* ---------- moves ---------- */
@@ -445,15 +625,30 @@
 
         moves--;
         updateHud();
-        await collapse();
-        await cascade();
+        await settle();
+    }
 
-        if (!reachedTarget && score >= target && moves > 0) {
-            reachedTarget = true;
-            banner('Target reached! Keep going for stars ★');
-        }
-        if (moves <= 0) { busy = false; endLevel(); return; }
-        if (!findMove()) await shuffle();
+    /* ---------- boosters ---------- */
+    async function smash(p) {
+        if (busy || over || boosters.hammer <= 0) return;
+        busy = true;
+        armed = false;
+        boosters.hammer--;
+        renderBoosters();
+        clearHint(); select(null);
+        combo = 1;
+        await blast(new Set([key(p.r, p.c)]));
+        await settle();
+    }
+
+    async function useShuffle() {
+        if (busy || over || boosters.shuffle <= 0) return;
+        busy = true;
+        boosters.shuffle--;
+        armed = false;
+        renderBoosters();
+        clearHint(); select(null);
+        await shuffle('Shuffle!');
         busy = false;
         armHint();
     }
@@ -468,7 +663,7 @@
     function showHint() {
         if (busy || over) return;
         clearHint();
-        const m = findMove();
+        const m = bestMove();
         if (!m) return;
         hinted = m.map((p) => grid[p.r][p.c].el);
         hinted.forEach((el) => el.classList.add('hint'));
@@ -485,7 +680,7 @@
         if (p) grid[p.r][p.c].el.classList.add('selected');
     }
 
-    /* ---------- input ---------- */
+    /* ---------- pointer input ---------- */
     let drag = null;
 
     function cellAt(e) {
@@ -500,6 +695,7 @@
         const p = cellAt(e);
         if (!p) return;
         e.preventDefault();
+        if (armed) { smash(p); return; }
         drag = { ...p, x: e.clientX, y: e.clientY };
     });
 
@@ -527,6 +723,40 @@
 
     window.addEventListener('pointercancel', () => { drag = null; });
 
+    /* ---------- keyboard input ---------- */
+    const cursorEl = h('div', { className: 'cursor' });
+    fxEl.appendChild(cursorEl);
+    const cur = { r: 3, c: 3, grab: false, on: false };
+    const DIRS = { ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1] };
+
+    function drawCursor() {
+        cursorEl.style.left = (cur.c * 100) / SIZE + '%';
+        cursorEl.style.top = (cur.r * 100) / SIZE + '%';
+        cursorEl.classList.toggle('on', cur.on);
+        cursorEl.classList.toggle('grab', cur.grab);
+    }
+
+    window.addEventListener('keydown', (e) => {
+        const tag = e.target && e.target.tagName;
+        if (over || tag === 'INPUT' || e.metaKey || e.ctrlKey || e.altKey) return;
+        const d = DIRS[e.key];
+        if (d) {
+            e.preventDefault();
+            const nr = cur.r + d[0], nc = cur.c + d[1];
+            if (!cur.on) cur.on = true;
+            else if (cur.grab) {
+                cur.grab = false;
+                if (inside(nr, nc)) trySwap({ r: cur.r, c: cur.c }, { r: nr, c: nc });
+            } else if (inside(nr, nc)) { cur.r = nr; cur.c = nc; }
+            drawCursor();
+        } else if ((e.key === 'Enter' || e.key === ' ') && tag !== 'BUTTON' && cur.on) {
+            e.preventDefault();
+            if (armed) smash({ r: cur.r, c: cur.c });
+            else if (!busy) cur.grab = !cur.grab;
+            drawCursor();
+        } else if (e.key === 'h' || e.key === 'H') showHint();
+    });
+
     /* ---------- levels & modals ---------- */
     function openModal(...kids) {
         cardEl.replaceChildren(...kids);
@@ -541,20 +771,31 @@
         return b;
     }
 
+    function goalText() {
+        if (goal.kind === 'score') return 'Score ' + goal.target.toLocaleString() + ' points';
+        if (goal.kind === 'collect') return 'Collect the candies shown';
+        return 'Break all the frosting';
+    }
+
     function startLevel() {
         const cfg = levelCfg(level);
-        score = 0; moves = cfg.moves; target = cfg.target;
-        reachedTarget = false; selected = null; combo = 1;
-        buildBoard();
-        updateHud();
-        closeModal();
+        score = 0; shown = 0; moves = startMoves = cfg.moves; types = cfg.types;
+        goal = { kind: cfg.kind, target: cfg.target, need: cfg.need };
+        selected = null; combo = 1; armed = false; cur.grab = false;
+        buildBoard(cfg);
+        goal.total = goalLeft();
         over = false; busy = false;
-        banner('Level ' + level);
+        updateHud();
+        renderBoosters();
+        drawCursor();
+        closeModal();
+        banner('Level ' + level + ' — ' + goalText());
         armHint();
     }
 
     function startRun() {
         level = 1; total = 0;
+        boosters = { hammer: 2, shuffle: 1 };
         startLevel();
     }
 
@@ -564,18 +805,22 @@
         $('best').textContent = best.toLocaleString();
     }
 
-    function endLevel() {
+    function endLevel(won, stars) {
         over = true;
+        lastWon = won;
         clearHint(); select(null);
-        if (score >= target) {
+        updateHud();
+        if (won) {
             total += score;
             saveBest(total);
-            const stars = score >= target * 2 ? 3 : score >= target * 1.5 ? 2 : 1;
+            boosters.hammer++;
+            if (stars === 3) boosters.shuffle++;
             sfx.win(); confetti();
             openModal(
                 h('div', { className: 'stars' }, '★'.repeat(stars), h('span', {}, '★'.repeat(3 - stars))),
                 h('h2', {}, 'Level ' + level + ' complete!'),
                 h('p', {}, 'You scored ' + score.toLocaleString() + ' — run total ' + total.toLocaleString() + '.'),
+                h('p', { className: 'reward' }, 'Reward: +1 🔨' + (stars === 3 ? ' and +1 🔀 for three stars!' : '. Finish with more moves to spare for extra stars.')),
                 button('Next level →', () => { level++; startLevel(); }),
             );
         } else {
@@ -589,13 +834,14 @@
                 if (!n) { name.focus(); return; }
                 save.disabled = true;
                 store.set('name', n);
-                note.textContent = (await submitScore(n, final, level)) ? 'Saved to the leaderboard!' : 'Could not save — try again.';
-                if (note.textContent.startsWith('Could')) save.disabled = false;
+                const ok = await submitScore(n, final, level);
+                note.textContent = ok ? 'Saved to the leaderboard!' : 'Could not save — try again.';
+                save.disabled = ok;
             }, 'btn ghost');
             openModal(
                 h('div', { className: 'big' }, '🍭'),
                 h('h2', {}, 'Out of moves!'),
-                h('p', {}, 'You needed ' + (target - score).toLocaleString() + ' more on level ' + level + '. Final score: ' + final.toLocaleString() + '.'),
+                h('p', {}, 'You reached level ' + level + ' with a final score of ' + final.toLocaleString() + '.'),
                 h('div', { className: 'row' }, name, save),
                 note,
                 button('Play again', startRun),
@@ -647,6 +893,14 @@
     $('mute').addEventListener('click', () => { $('mute').textContent = sfx.toggle() ? '🔇' : '🔊'; });
     $('hintBtn').addEventListener('click', showHint);
     $('restart').addEventListener('click', () => { if (!busy) startRun(); });
+    $('shuffle').addEventListener('click', useShuffle);
+    $('hammer').addEventListener('click', () => {
+        if (busy || over || boosters.hammer <= 0) return;
+        armed = !armed;
+        select(null);
+        renderBoosters();
+        if (armed) banner('Tap a candy to smash it');
+    });
 
     saveBest(0);
     loadScores();
@@ -656,13 +910,13 @@
     openModal(
         h('div', { className: 'big' }, '🍬'),
         h('h2', {}, 'Sweet Swap'),
-        h('p', {}, 'Swap candies to match 3 or more. Build rockets, bombs and rainbows, chain combos, and climb the leaderboard!'),
-        button('Play', () => { closeModal(); over = false; banner('Level 1'); armHint(); }),
+        h('p', {}, 'Swap candies to match 3 or more. Every level has a new goal — hit scores, collect candies, break frosting — and spare moves explode into a sugar finale!'),
+        button('Play', () => { closeModal(); over = false; banner('Level 1 — ' + goalText()); armHint(); }),
     );
 
     window.__candy = {
-        trySwap, findMove, startRun,
-        next() { level++; startLevel(); },
-        get state() { return { level, score, total, moves, target, over, busy }; },
+        trySwap, findMove, bestMove, startRun, smash, useShuffle,
+        startAt(n) { level = n; total = 0; startLevel(); },
+        get state() { return { level, score, total, moves, over, busy, won: lastWon, left: goalLeft(), boosters }; },
     };
 })();
