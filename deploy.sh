@@ -55,7 +55,8 @@ check_php() {
 }
 
 pending_migrations() {
-    ! $PHP artisan migrate:status --pending 2>/dev/null | grep -q 'No pending migrations'
+    local out; out=$($PHP artisan migrate:status --pending 2>/dev/null || true)
+    ! grep -q 'No pending migrations' <<<"$out"
 }
 
 record() {
@@ -73,7 +74,10 @@ verify() {
 
     check_php && ok "$PHP is $($PHP -r 'echo PHP_VERSION;')" || fail "$PHP is older than $MIN_PHP or missing — set PHP_BIN in deploy.conf"
     if [ "$(env_value DB_CONNECTION)" = "sqlite" ]; then
-        $PHP -m 2>/dev/null | grep -qi '^pdo_sqlite$' && ok "pdo_sqlite loaded" || fail "pdo_sqlite extension missing from $PHP"
+        # Captured first: under pipefail, `php -m | grep -q` fails when grep
+        # exits early and php dies writing to the closed pipe.
+        local mods; mods=$($PHP -m 2>/dev/null || true)
+        grep -qi '^pdo_sqlite$' <<<"$mods" && ok "pdo_sqlite loaded" || fail "pdo_sqlite extension missing from $PHP"
     fi
     [ -f .env ] && ok ".env present" || fail ".env missing"
     grep -q '^APP_KEY=base64:' .env 2>/dev/null && ok "APP_KEY set" || fail "APP_KEY not set — run: php artisan key:generate"
@@ -89,7 +93,7 @@ verify() {
         [ -f "$f" ] && ok "$f" || fail "$f missing"
     done
 
-    if $PHP artisan migrate:status --pending 2>/dev/null | grep -q 'No pending migrations'; then
+    if ! pending_migrations; then
         ok "no pending migrations"
     else
         fail "pending migrations (or the database is unreachable) — run: php artisan migrate:status"
