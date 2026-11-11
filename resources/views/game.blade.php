@@ -5,6 +5,15 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <meta name="csrf-token" content="{{ csrf_token() }}">
     <meta name="theme-color" content="#2a0f4a">
+    <meta name="description" content="Sweet Swap — a free match-3 candy game. Swap candies, build rockets, bombs and rainbows, and climb the leaderboard.">
+    <meta property="og:title" content="Sweet Swap">
+    <meta property="og:description" content="A free match-3 candy game with goals, boosters and a leaderboard.">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Sweet Swap">
+    <link rel="icon" href="{{ asset('favicon.svg') }}" type="image/svg+xml">
+    <link rel="apple-touch-icon" href="{{ asset('icons/icon-180.png') }}">
+    <link rel="manifest" href="{{ asset('manifest.webmanifest') }}">
     <title>Sweet Swap — a match-3 candy game</title>
     <link rel="stylesheet" href="{{ asset('game/game.css') }}?v={{ filemtime(public_path('game/game.css')) }}">
 </head>
@@ -14,6 +23,7 @@
         <h1><span class="logo">🍬</span> Sweet Swap</h1>
         <div class="top-actions">
             <span id="lives" class="lives" role="img" aria-label="3 of 3 lives left">❤️❤️❤️</span>
+            <button id="help" class="icon-btn" aria-label="How to play" title="How to play">?</button>
             <button id="restart" class="icon-btn" aria-label="Start a new run" title="Start a new run">↻</button>
             <button id="mute" class="icon-btn" aria-label="Toggle sound" title="Sound on/off">🔊</button>
         </div>

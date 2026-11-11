@@ -25,7 +25,10 @@ class ScoreController extends Controller
 
         Score::create($data);
 
-        return response()->json($this->top(), 201);
+        return response()->json([
+            'rank' => Score::where('score', '>', $data['score'])->count() + 1,
+            'top' => $this->top(),
+        ], 201);
     }
 
     private function top()

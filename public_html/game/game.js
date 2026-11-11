@@ -13,6 +13,8 @@
     const boardEl = $('board'), fxEl = $('fx'), bannerEl = $('banner'), wrapEl = $('wrap');
     const modalEl = $('modal'), cardEl = $('card'), confettiEl = $('confetti');
 
+    // Respect the system "reduce motion" setting: keep the game, drop the fireworks.
+    const CALM = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     const wait = (ms) => (FAST ? Promise.resolve() : new Promise((r) => setTimeout(r, ms)));
     const rand = (n) => Math.floor(Math.random() * n);
     const key = (r, c) => r * SIZE + c;
@@ -75,7 +77,7 @@
     let goal = { kind: 'score', target: 1 };
     let boosters = { hammer: 2, shuffle: 1 };
     let busy = false, over = true, combo = 1, selected = null, hintTimer = null, hinted = [];
-    let armed = false, lastWon = null, raf = 0, lives = 3;
+    let armed = false, lastWon = null, raf = 0, lives = 3, lastLeft = 0;
 
     const TIPS = {
         h: 'Rocket! Match it to clear a whole row',
@@ -102,14 +104,21 @@
         try { navigator.vibrate(ms); } catch { /* unsupported */ }
     }
 
+    // Long chain reactions speed up, so they feel like a rush instead of a wait.
+    const pace = () => Math.max(0.62, 1 - 0.08 * (combo - 1));
     const typeAt = (r, c) => (inside(r, c) && grid[r][c] ? grid[r][c].type : -1);
 
     /* ---------- levels ---------- */
+    // Moves for each frosting pattern [thin, thick], tuned so difficulty rises
+    // smoothly instead of spiking on the awkward shapes.
+    const FROST_MOVES = [[24, 27], [35, 37], [31, 36], [28, 32]];
+    const frostVariant = (n) => (Math.floor(n / 3) + 3) % 4; // level 3 starts with the easy centre block
+
     function frostPattern(n) {
-        const variant = (Math.floor(n / 3) + 3) % 4; // level 3 starts with the easy centre block
+        const variant = frostVariant(n);
         const on = [
             (r, c) => r >= 2 && r <= 5 && c >= 2 && c <= 5,
-            (r, c) => r >= 5 && c >= 1 && c <= 6,
+            (r) => r === 2 || r === 5,
             (r, c) => r >= 1 && r <= 6 && (c === 1 || c === 2 || c === 5 || c === 6),
             (r, c) => Math.abs(r - 3.5) + Math.abs(c - 3.5) <= 3,
         ][variant];
@@ -122,7 +131,7 @@
     function levelCfg(n) {
         const kind = ['frost', 'score', 'collect'][n % 3];
         const cfg = { kind, moves: 20, types: n <= 2 ? 5 : 6 };
-        if (kind === 'score') cfg.target = Math.min(13000, 5500 + (n - 1) * 400);
+        if (kind === 'score') cfg.target = Math.min(10000, 6000 + (n - 1) * 250);
         if (kind === 'collect') {
             const k = n >= 8 ? 3 : 2;
             const each = Math.min(k === 2 ? 26 : 19, (k === 2 ? 16 : 13) + Math.floor(n / 3));
@@ -130,7 +139,7 @@
             cfg.need = {};
             for (let i = 0; i < k; i++) cfg.need[pool.splice(rand(pool.length), 1)[0]] = each;
         }
-        if (kind === 'frost') { cfg.frost = frostPattern(n); cfg.moves = n >= 12 ? 32 : 27; }
+        if (kind === 'frost') { cfg.frost = frostPattern(n); cfg.moves = FROST_MOVES[frostVariant(n)][n >= 12 ? 1 : 0]; }
         return cfg;
     }
 
@@ -344,6 +353,7 @@
     }
 
     function particles(r, c, type) {
+        if (CALM) return;
         const color = type < 0 ? '#ffffff' : COLORS[type];
         for (let i = 0; i < 5; i++) {
             const ang = Math.random() * Math.PI * 2, dist = 30 + Math.random() * 50;
@@ -378,7 +388,7 @@
     }
 
     function confetti() {
-        if (FAST) return;
+        if (FAST || CALM) return;
         for (let i = 0; i < 90; i++) {
             const el = h('i');
             el.style.setProperty('left', Math.random() * 100 + '%');
@@ -423,6 +433,8 @@
 
         const left = goalLeft();
         const g = $('goal');
+        if (left < lastLeft) retrigger(g, 'bump');
+        lastLeft = left;
         if (goal.kind === 'score') g.replaceChildren(h('span', { className: 'chip' }, '🎯 ' + goal.target.toLocaleString()));
         else if (goal.kind === 'collect') g.replaceChildren(...Object.entries(goal.need).map(([t, n]) => chip(Number(t), n)));
         else g.replaceChildren(h('span', { className: 'chip' + (left ? '' : ' done') }, '🧊 ' + (left || '✓')));
@@ -495,9 +507,9 @@
         score += gained;
         updateHud(true);
         fx('popup', { left: pct(sc / dead.length), top: pct(sr / dead.length) }, '+' + gained.toLocaleString(), 900);
-        if (big) { sfx.boom(); buzz(40); retrigger(wrapEl, 'shake'); } else { sfx.match(combo); buzz(12); }
+        if (big) { sfx.boom(); buzz(40); if (!CALM) retrigger(wrapEl, 'shake'); } else { sfx.match(combo); buzz(12); }
 
-        await wait(T.pop);
+        await wait(T.pop * pace());
         dead.forEach((el) => el.remove());
         for (const s of spawns) {
             const [r, c] = rc(s.k);
@@ -528,8 +540,9 @@
             const n = write + 1;
             for (let r = write; r >= 0; r--) fresh.push([makeTile(r, c, rand(types), null, r - n), r, c]);
         }
+        boardEl.style.setProperty('--dur', Math.round(240 * pace()) + 'ms');
         dropIn(fresh);
-        await wait(T.fall);
+        await wait(T.fall * pace());
     }
 
     async function cascade() {
@@ -665,6 +678,7 @@
         }
 
         moves--;
+        store.set('played', '1');
         updateHud();
         await settle();
     }
@@ -869,6 +883,36 @@
         startLevel();
     }
 
+    function sample(cls) {
+        return h('i', { className: 'mini big-mini' }, h('i', { className: 'candy ' + cls }));
+    }
+
+    function helpRow(icon, title, text) {
+        return h('li', {}, h('span', { className: 'ico' }, icon), h('span', {}, h('b', {}, title), ' ' + text));
+    }
+
+    // Pictures of the real pieces, reachable from the header on any screen size.
+    function showHelp() {
+        if (busy) return;
+        const wasOver = over;
+        over = true;
+        clearHint();
+        openModal(
+            h('h2', {}, 'How to play'),
+            h('ul', { className: 'legend' },
+                helpRow(h('i', { className: 'pair' }, sample('c0'), sample('c0'), sample('c0')), 'Match 3', 'Drag a candy onto its neighbour, or tap one then the other.'),
+                helpRow(sample('c1 sp-h'), 'Rocket', 'from 4 in a row. Clears a whole line.'),
+                helpRow(sample('c4 sp-bomb'), 'Bomb', 'from an L or T shape. Blasts its neighbours.'),
+                helpRow(sample('rainbow'), 'Rainbow', 'from 5 in a row. Swap it with a candy to clear that colour.'),
+                helpRow(h('i', { className: 'mini big-mini' }, h('i', { className: 'frost f1 sample' })), 'Frosting', 'breaks when you match on top of it.'),
+                helpRow(h('i', { className: 'emoji' }, '🔨'), 'Hammer', 'smashes one candy. Costs no move.'),
+                helpRow(h('i', { className: 'emoji' }, '❤️'), '3 lives', 'Running out of moves costs one and replays the level.'),
+            ),
+            h('p', { className: 'note' }, 'Finish with moves to spare for a sugar finale and more stars.'),
+            button('Got it', () => { closeModal(); over = wasOver; if (!over) armHint(); }),
+        );
+    }
+
     // Restarting throws away a run, so it asks first once there is one to lose.
     function confirmRestart() {
         if (busy) return;
@@ -900,8 +944,10 @@
             boosters.hammer++;
             if (stars === 3) boosters.shuffle++;
             sfx.win(); confetti();
+            if (!FAST) for (let i = 0; i < stars; i++) setTimeout(() => sfx.tick(i * 3), 500 + i * 260);
             openModal(
-                h('div', { className: 'stars' }, '★'.repeat(stars), h('span', {}, '★'.repeat(3 - stars))),
+                h('div', { className: 'stars', role: 'img', ariaLabel: stars + ' of 3 stars' },
+                    ...[0, 1, 2].map((i) => { const el = h('i', { className: i < stars ? 'on' : '' }, '★'); el.style.setProperty('--i', i); return el; })),
                 h('h2', {}, 'Level ' + level + ' complete!'),
                 h('p', {}, 'You scored ' + score.toLocaleString() + ' — run total ' + total.toLocaleString() + '.'),
                 h('p', { className: 'reward' }, 'Reward: +1 🔨' + (stars === 3 ? ' and +1 🔀 for three stars!' : '. Finish with more moves to spare for extra stars.')),
@@ -934,9 +980,9 @@
                 if (!n) { name.focus(); return; }
                 save.disabled = true;
                 store.set('name', n);
-                const ok = await submitScore(n, final, level);
-                note.textContent = ok ? 'Saved to the leaderboard!' : 'Could not save — try again.';
-                save.disabled = ok;
+                const rank = await submitScore(n, final, level);
+                note.textContent = rank ? 'Saved — you are #' + rank + ' of all time!' : 'Could not save — try again.';
+                save.disabled = !!rank;
             }, 'btn ghost');
             openModal(
                 h('div', { className: 'big' }, '🍭'),
@@ -950,13 +996,16 @@
     }
 
     /* ---------- leaderboard ---------- */
-    function renderScores(rows) {
+    function renderScores(rows, mine = null) {
         const list = $('scores');
         if (!Array.isArray(rows) || !rows.length) {
             list.replaceChildren(h('li', { className: 'empty' }, 'No scores yet — be the first!'));
             return;
         }
-        list.replaceChildren(...rows.map((s) => h('li', {},
+        let marked = false;
+        list.replaceChildren(...rows.map((s) => h('li', {
+            className: mine && !marked && s.name === mine.name && Number(s.score) === mine.score && (marked = true) ? 'me' : '',
+        },
             h('span', { className: 'who' }, String(s.name)),
             h('span', { className: 'lv' }, 'Lv ' + s.level),
             h('b', {}, Number(s.score).toLocaleString()),
@@ -982,10 +1031,11 @@
                 },
                 body: JSON.stringify({ name, score: value, level: lvl }),
             });
-            if (!res.ok) return false;
-            renderScores(await res.json());
-            return true;
-        } catch { return false; }
+            if (!res.ok) return 0;
+            const data = await res.json();
+            renderScores(data.top, { name, score: value });
+            return data.rank || 1;
+        } catch { return 0; }
     }
 
     /* ---------- boot ---------- */
@@ -993,6 +1043,7 @@
     $('mute').addEventListener('click', () => { $('mute').textContent = sfx.toggle() ? '🔇' : '🔊'; });
     $('hintBtn').addEventListener('click', showHint);
     $('restart').addEventListener('click', confirmRestart);
+    $('help').addEventListener('click', showHelp);
     $('shuffle').addEventListener('click', useShuffle);
     $('hammer').addEventListener('click', () => {
         if (busy || over || boosters.hammer <= 0) return;
@@ -1009,7 +1060,14 @@
     startLevel();
     over = true; // board is visible behind the welcome card until Play is pressed
     clearHint();
-    const begin = () => { closeModal(); over = false; banner('Level ' + level + ' — ' + goalText(), true); armHint(); };
+    const begin = () => {
+        closeModal(); over = false;
+        armHint();
+        if (store.get('played')) { banner('Level ' + level + ' — ' + goalText(), true); return; }
+        // First ever game: point at a move straight away instead of after a pause.
+        showHint();
+        banner('Drag a glowing candy onto the other one', true);
+    };
     const resuming = saved && (saved.level > 1 || saved.total > 0 || saved.lives < 3);
     openModal(
         h('div', { className: 'big' }, '🍬'),

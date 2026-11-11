@@ -23,10 +23,15 @@ class ScoreTest extends TestCase
 
         $this->postJson('/scores', ['name' => '<b>Ace</b>', 'score' => 9000, 'level' => 3])
             ->assertCreated()
-            ->assertJsonPath('0.name', 'Ace')
-            ->assertJsonPath('1.name', 'Low');
+            ->assertJsonPath('rank', 1)
+            ->assertJsonPath('top.0.name', 'Ace')
+            ->assertJsonPath('top.1.name', 'Low');
 
-        $this->getJson('/scores')->assertOk()->assertJsonCount(2);
+        $this->postJson('/scores', ['name' => 'Mid', 'score' => 500, 'level' => 2])
+            ->assertCreated()
+            ->assertJsonPath('rank', 2);
+
+        $this->getJson('/scores')->assertOk()->assertJsonCount(3)->assertJsonPath('0.name', 'Ace');
     }
 
     public function test_invalid_score_is_rejected(): void
