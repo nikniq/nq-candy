@@ -12,7 +12,11 @@
 <div class="app">
     <header class="top">
         <h1><span class="logo">🍬</span> Sweet Swap</h1>
-        <button id="mute" class="icon-btn" aria-label="Toggle sound">🔊</button>
+        <div class="top-actions">
+            <span id="lives" class="lives" role="img" aria-label="3 of 3 lives left">❤️❤️❤️</span>
+            <button id="restart" class="icon-btn" aria-label="Start a new run" title="Start a new run">↻</button>
+            <button id="mute" class="icon-btn" aria-label="Toggle sound" title="Sound on/off">🔊</button>
+        </div>
     </header>
 
     <main class="layout">
@@ -20,14 +24,14 @@
             <div class="hud">
                 <div class="stat"><span>Level</span><b id="level">1</b></div>
                 <div class="stat"><span>Score</span><b id="score">0</b></div>
-                <div class="stat wide"><span>Goal</span><b id="goal"></b></div>
+                <div class="stat wide"><span id="goalLabel">Goal</span><b id="goal"></b></div>
                 <div class="stat"><span>Moves</span><b id="moves">0</b></div>
             </div>
 
             <div class="progress" aria-hidden="true"><div id="bar"></div></div>
 
             <div class="board-wrap" id="wrap">
-                <div id="board" aria-label="Game board"></div>
+                <div id="board" role="application" aria-label="Game board. Arrow keys move, Enter grabs a candy, an arrow then swaps it."></div>
                 <div id="fx"></div>
                 <div id="banner"></div>
             </div>
@@ -35,8 +39,7 @@
             <div class="actions">
                 <button id="hammer" class="btn ghost" title="Smash any one candy — costs no move">🔨 Hammer <b id="hammerN">0</b></button>
                 <button id="shuffle" class="btn ghost" title="Shuffle the whole board — costs no move">🔀 Shuffle <b id="shuffleN">0</b></button>
-                <button id="hintBtn" class="btn ghost">💡 Hint</button>
-                <button id="restart" class="btn ghost">↻ New run</button>
+                <button id="hintBtn" class="btn ghost" title="Show the best move (H)">💡 Hint</button>
             </div>
         </section>
 
@@ -53,15 +56,17 @@
                     <li><b>4 in a row</b> makes a striped <b>Rocket</b>, an <b>L or T</b> makes a <b>Bomb</b>, and <b>5 in a row</b> makes a <b>Rainbow</b>. Swap two specials together for a bigger bang.</li>
                     <li>Each level has a goal: reach a <b>score</b>, <b>collect</b> candies, or break the <b>frosting</b> 🧊 by matching on top of it.</li>
                     <li>Finish early and your spare moves explode in a <b>sugar finale</b> — and earn more stars.</li>
-                    <li>Winning earns a <b>🔨 Hammer</b>; three stars adds a <b>🔀 Shuffle</b>.</li>
-                    <li>Keyboard: arrows move, <b>Enter</b> grabs, arrow swaps, <b>H</b> hints.</li>
+                    <li>Winning earns a <b>🔨 Hammer</b>; three stars adds a <b>🔀 Shuffle</b>. Neither costs a move.</li>
+                    <li>You have <b>3 lives</b> ❤️. Running out of moves costs one and replays the level. Your run is saved if you close the page.</li>
+                    <li>Keyboard: arrows move, <b>Enter</b> grabs, arrow swaps, <b>H</b> hints, <b>Esc</b> cancels.</li>
                 </ul>
             </div>
         </aside>
     </main>
 </div>
 
-<div id="modal" class="modal"><div class="card" id="card"></div></div>
+<div id="modal" class="modal"><div class="card" id="card" role="dialog" aria-modal="true" aria-label="Game message"></div></div>
+<div id="sr" class="sr-only" aria-live="polite"></div>
 <div id="confetti" aria-hidden="true"></div>
 
 <script src="{{ asset('game/game.js') }}?v={{ filemtime(public_path('game/game.js')) }}"></script>

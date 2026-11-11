@@ -75,7 +75,32 @@
     let goal = { kind: 'score', target: 1 };
     let boosters = { hammer: 2, shuffle: 1 };
     let busy = false, over = true, combo = 1, selected = null, hintTimer = null, hinted = [];
-    let armed = false, lastWon = null, raf = 0;
+    let armed = false, lastWon = null, raf = 0, lives = 3;
+
+    const TIPS = {
+        h: 'Rocket! Match it to clear a whole row',
+        v: 'Rocket! Match it to clear a whole column',
+        bomb: 'Bomb! Match it to blast its neighbours',
+        rainbow: 'Rainbow! Swap it with any candy',
+    };
+
+    // The run (not the board) survives a reload: level, total, boosters, lives.
+    function saveRun(lvl = level) {
+        store.set('run', JSON.stringify({ level: lvl, total, boosters, lives }));
+    }
+
+    function loadRun() {
+        try {
+            const r = JSON.parse(store.get('run'));
+            if (r && r.level >= 1 && r.lives > 0 && r.boosters) return r;
+        } catch { /* nothing saved */ }
+        return null;
+    }
+
+    function buzz(ms) {
+        if (FAST || sfx.muted || typeof navigator === 'undefined' || !navigator.vibrate) return;
+        try { navigator.vibrate(ms); } catch { /* unsupported */ }
+    }
 
     const typeAt = (r, c) => (inside(r, c) && grid[r][c] ? grid[r][c].type : -1);
 
@@ -97,7 +122,7 @@
     function levelCfg(n) {
         const kind = ['frost', 'score', 'collect'][n % 3];
         const cfg = { kind, moves: 20, types: n <= 2 ? 5 : 6 };
-        if (kind === 'score') cfg.target = Math.min(11000, 3000 + (n - 1) * 450);
+        if (kind === 'score') cfg.target = Math.min(13000, 5500 + (n - 1) * 400);
         if (kind === 'collect') {
             const k = n >= 8 ? 3 : 2;
             const each = Math.min(k === 2 ? 26 : 19, (k === 2 ? 16 : 13) + Math.floor(n / 3));
@@ -105,7 +130,7 @@
             cfg.need = {};
             for (let i = 0; i < k; i++) cfg.need[pool.splice(rand(pool.length), 1)[0]] = each;
         }
-        if (kind === 'frost') { cfg.frost = frostPattern(n); cfg.moves = n >= 12 ? 30 : 24; }
+        if (kind === 'frost') { cfg.frost = frostPattern(n); cfg.moves = n >= 12 ? 32 : 27; }
         return cfg;
     }
 
@@ -336,10 +361,20 @@
         el.classList.add(cls);
     }
 
-    function banner(text) {
+    function banner(text, long = false) {
         if (FAST) return;
         bannerEl.textContent = text;
+        bannerEl.classList.toggle('long', long);
         retrigger(bannerEl, 'show');
+        $('sr').textContent = text;
+    }
+
+    // Explain each special the first time the player makes one.
+    function tip(special) {
+        const k = special === 'v' ? 'h' : special;
+        if (FAST || store.get('tip.' + k)) return;
+        store.set('tip.' + k, '1');
+        banner(TIPS[special], true);
     }
 
     function confetti() {
@@ -381,6 +416,10 @@
         $('moves').classList.toggle('low', moves <= 5 && !over);
         tweenScore();
         if (bump) retrigger($('score'), 'bump');
+
+        $('lives').textContent = '❤️'.repeat(lives) + '🖤'.repeat(Math.max(0, 3 - lives));
+        $('lives').setAttribute('aria-label', lives + ' of 3 lives left');
+        $('goalLabel').textContent = { score: 'Goal · score', collect: 'Goal · collect', frost: 'Goal · frosting' }[goal.kind];
 
         const left = goalLeft();
         const g = $('goal');
@@ -456,13 +495,13 @@
         score += gained;
         updateHud(true);
         fx('popup', { left: pct(sc / dead.length), top: pct(sr / dead.length) }, '+' + gained.toLocaleString(), 900);
-        if (big) { sfx.boom(); retrigger(wrapEl, 'shake'); } else sfx.match(combo);
+        if (big) { sfx.boom(); buzz(40); retrigger(wrapEl, 'shake'); } else { sfx.match(combo); buzz(12); }
 
         await wait(T.pop);
         dead.forEach((el) => el.remove());
         for (const s of spawns) {
             const [r, c] = rc(s.k);
-            if (!grid[r][c]) makeTile(r, c, s.type, s.special).inner.classList.add('spawn');
+            if (!grid[r][c]) { makeTile(r, c, s.type, s.special).inner.classList.add('spawn'); tip(s.special); }
         }
     }
 
@@ -565,6 +604,7 @@
         }
         if (moves <= 0) { busy = false; endLevel(false, 0); return; }
         if (!findMove()) await shuffle('No moves — shuffling!');
+        else if (moves === 5) banner('5 moves left!');
         busy = false;
         armHint();
     }
@@ -616,7 +656,8 @@
 
         if (!acted) {
             swapTiles(a, b);
-            sfx.bad();
+            sfx.bad(); buzz(25);
+            if (!FAST) [ta, tb].forEach((t) => { t.el.classList.add('nope'); setTimeout(() => t.el.classList.remove('nope'), 400); });
             await wait(T.swap);
             busy = false;
             armHint();
@@ -699,29 +740,43 @@
         drag = { ...p, x: e.clientX, y: e.clientY };
     });
 
+    // Put a dragged candy back on its cell (the swap, if any, animates from there).
+    function dropDrag() {
+        if (!drag) return null;
+        const p = { r: drag.r, c: drag.c };
+        const t = grid[p.r][p.c];
+        if (t) { t.el.classList.remove('dragging'); place(t, p.r, p.c); }
+        drag = null;
+        return p;
+    }
+
     window.addEventListener('pointermove', (e) => {
         if (!drag) return;
         const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
-        if (Math.max(Math.abs(dx), Math.abs(dy)) < drag.size * 0.35) return;
-        const a = { r: drag.r, c: drag.c };
-        const b = Math.abs(dx) > Math.abs(dy)
-            ? { r: a.r, c: a.c + Math.sign(dx) }
-            : { r: a.r + Math.sign(dy), c: a.c };
-        drag = null;
+        const horiz = Math.abs(dx) > Math.abs(dy);
+        if (Math.max(Math.abs(dx), Math.abs(dy)) < drag.size * 0.4) {
+            // The candy follows the finger along one axis until the swap commits.
+            const t = grid[drag.r][drag.c];
+            if (t && Math.max(Math.abs(dx), Math.abs(dy)) > 3) {
+                t.el.classList.add('dragging');
+                t.el.style.transform = `translate(calc(${drag.c * 100}% + ${horiz ? dx : 0}px), calc(${drag.r * 100}% + ${horiz ? 0 : dy}px))`;
+            }
+            return;
+        }
+        const a = dropDrag();
+        const b = horiz ? { r: a.r, c: a.c + Math.sign(dx) } : { r: a.r + Math.sign(dy), c: a.c };
         if (inside(b.r, b.c)) trySwap(a, b);
     });
 
     window.addEventListener('pointerup', () => {
-        if (!drag) return;
-        const p = { r: drag.r, c: drag.c };
-        drag = null;
-        if (busy || over) return;
+        const p = dropDrag();
+        if (!p || busy || over) return;
         if (selected && Math.abs(selected.r - p.r) + Math.abs(selected.c - p.c) === 1) trySwap(selected, p);
         else if (selected && selected.r === p.r && selected.c === p.c) select(null);
         else { clearHint(); select(p); armHint(); }
     });
 
-    window.addEventListener('pointercancel', () => { drag = null; });
+    window.addEventListener('pointercancel', dropDrag);
 
     /* ---------- keyboard input ---------- */
     const cursorEl = h('div', { className: 'cursor' });
@@ -739,6 +794,11 @@
     window.addEventListener('keydown', (e) => {
         const tag = e.target && e.target.tagName;
         if (over || tag === 'INPUT' || e.metaKey || e.ctrlKey || e.altKey) return;
+        if (e.key === 'Escape') {
+            armed = false; cur.grab = false;
+            select(null); renderBoosters(); drawCursor();
+            return;
+        }
         const d = DIRS[e.key];
         if (d) {
             e.preventDefault();
@@ -761,9 +821,16 @@
     function openModal(...kids) {
         cardEl.replaceChildren(...kids);
         modalEl.classList.add('open');
+        // Keyboard and screen-reader users land on the main action.
+        const main = cardEl.querySelector && cardEl.querySelector('.btn:not(.ghost)');
+        if (main) setTimeout(() => main.focus(), 60);
     }
 
-    function closeModal() { modalEl.classList.remove('open'); }
+    function closeModal() {
+        modalEl.classList.remove('open');
+        // Otherwise focus stays on the now-hidden button, and Enter presses it again.
+        if (document.activeElement && cardEl.contains && cardEl.contains(document.activeElement)) document.activeElement.blur();
+    }
 
     function button(label, fn, cls = 'btn') {
         const b = h('button', { className: cls, type: 'button' }, label);
@@ -773,9 +840,11 @@
 
     function goalText() {
         if (goal.kind === 'score') return 'Score ' + goal.target.toLocaleString() + ' points';
-        if (goal.kind === 'collect') return 'Collect the candies shown';
+        if (goal.kind === 'collect') return 'Collect the candies shown above';
         return 'Break all the frosting';
     }
+
+    const KIND_TEXT = { score: 'reach a score', collect: 'collect candies', frost: 'break the frosting' };
 
     function startLevel() {
         const cfg = levelCfg(level);
@@ -789,14 +858,29 @@
         renderBoosters();
         drawCursor();
         closeModal();
-        banner('Level ' + level + ' — ' + goalText());
+        banner('Level ' + level + ' — ' + goalText(), true);
+        saveRun();
         armHint();
     }
 
     function startRun() {
-        level = 1; total = 0;
+        level = 1; total = 0; lives = 3;
         boosters = { hammer: 2, shuffle: 1 };
         startLevel();
+    }
+
+    // Restarting throws away a run, so it asks first once there is one to lose.
+    function confirmRestart() {
+        if (busy) return;
+        if (over || (level === 1 && total === 0 && moves === startMoves)) { startRun(); return; }
+        over = true;
+        clearHint();
+        openModal(
+            h('h2', {}, 'Start a new run?'),
+            h('p', {}, 'You are on level ' + level + ' with ' + (total + score).toLocaleString() + ' points. A new run starts again from level 1.'),
+            button('Keep playing', () => { closeModal(); over = false; armHint(); }),
+            button('Start over', startRun, 'btn ghost'),
+        );
     }
 
     function saveBest(v) {
@@ -821,9 +905,25 @@
                 h('h2', {}, 'Level ' + level + ' complete!'),
                 h('p', {}, 'You scored ' + score.toLocaleString() + ' — run total ' + total.toLocaleString() + '.'),
                 h('p', { className: 'reward' }, 'Reward: +1 🔨' + (stars === 3 ? ' and +1 🔀 for three stars!' : '. Finish with more moves to spare for extra stars.')),
+                h('p', { className: 'note' }, 'Next: ' + KIND_TEXT[levelCfg(level + 1).kind] + '.'),
                 button('Next level →', () => { level++; startLevel(); }),
             );
+            saveRun(level + 1);
+        } else if (lives > 1) {
+            lives--;
+            saveRun();
+            sfx.lose();
+            updateHud();
+            openModal(
+                h('div', { className: 'big' }, '💔'),
+                h('h2', {}, 'Out of moves!'),
+                h('p', {}, 'So close. You have ' + lives + (lives === 1 ? ' life' : ' lives') + ' left — try level ' + level + ' again.'),
+                button('Try again', startLevel),
+            );
         } else {
+            lives = 0;
+            store.set('run', '');
+            updateHud();
             const final = total + score;
             saveBest(final);
             sfx.lose();
@@ -840,8 +940,8 @@
             }, 'btn ghost');
             openModal(
                 h('div', { className: 'big' }, '🍭'),
-                h('h2', {}, 'Out of moves!'),
-                h('p', {}, 'You reached level ' + level + ' with a final score of ' + final.toLocaleString() + '.'),
+                h('h2', {}, 'Game over'),
+                h('p', {}, 'No lives left. You reached level ' + level + ' with a final score of ' + final.toLocaleString() + '.'),
                 h('div', { className: 'row' }, name, save),
                 note,
                 button('Play again', startRun),
@@ -892,7 +992,7 @@
     $('mute').textContent = sfx.muted ? '🔇' : '🔊';
     $('mute').addEventListener('click', () => { $('mute').textContent = sfx.toggle() ? '🔇' : '🔊'; });
     $('hintBtn').addEventListener('click', showHint);
-    $('restart').addEventListener('click', () => { if (!busy) startRun(); });
+    $('restart').addEventListener('click', confirmRestart);
     $('shuffle').addEventListener('click', useShuffle);
     $('hammer').addEventListener('click', () => {
         if (busy || over || boosters.hammer <= 0) return;
@@ -904,19 +1004,26 @@
 
     saveBest(0);
     loadScores();
+    const saved = loadRun();
+    if (saved) ({ level, total, boosters, lives } = saved);
     startLevel();
     over = true; // board is visible behind the welcome card until Play is pressed
     clearHint();
+    const begin = () => { closeModal(); over = false; banner('Level ' + level + ' — ' + goalText(), true); armHint(); };
+    const resuming = saved && (saved.level > 1 || saved.total > 0 || saved.lives < 3);
     openModal(
         h('div', { className: 'big' }, '🍬'),
         h('h2', {}, 'Sweet Swap'),
-        h('p', {}, 'Swap candies to match 3 or more. Every level has a new goal — hit scores, collect candies, break frosting — and spare moves explode into a sugar finale!'),
-        button('Play', () => { closeModal(); over = false; banner('Level 1 — ' + goalText()); armHint(); }),
+        h('p', {}, resuming
+            ? 'Welcome back! Your run is saved at level ' + level + ' with ' + total.toLocaleString() + ' points.'
+            : 'Swap candies to match 3 or more. Every level has a new goal — hit scores, collect candies, break frosting — and spare moves explode into a sugar finale!'),
+        button(resuming ? 'Continue level ' + level : 'Play', begin),
+        ...(resuming ? [button('Start a new run', () => { startRun(); }, 'btn ghost')] : []),
     );
 
     window.__candy = {
         trySwap, findMove, bestMove, startRun, smash, useShuffle,
         startAt(n) { level = n; total = 0; startLevel(); },
-        get state() { return { level, score, total, moves, over, busy, won: lastWon, left: goalLeft(), boosters }; },
+        get state() { return { level, score, total, moves, over, busy, won: lastWon, left: goalLeft(), boosters, lives }; },
     };
 })();
