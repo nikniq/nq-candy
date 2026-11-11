@@ -14,7 +14,7 @@ class ScoreTest extends TestCase
     {
         $this->assertStringEndsWith('public_html', public_path());
 
-        $this->get('/')->assertOk()->assertSee('game/game.js');
+        $this->get('/')->assertOk()->assertSee('game/game.js')->assertSee('href="https://nikniq.com"', false);
     }
 
     public function test_score_can_be_saved_and_listed_highest_first(): void

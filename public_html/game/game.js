@@ -21,6 +21,8 @@
     const rc = (k) => [Math.floor(k / SIZE), k % SIZE];
     const inside = (r, c) => r >= 0 && r < SIZE && c >= 0 && c < SIZE;
 
+    const user = window.__user || null; // { id, name } when signed in
+
     const store = {
         get(k) { try { return localStorage.getItem('sweetswap.' + k); } catch { return null; } },
         set(k, v) { try { localStorage.setItem('sweetswap.' + k, v); } catch { /* private mode */ } },
@@ -913,6 +915,39 @@
         );
     }
 
+    function link(label, href, cls = 'btn') {
+        return h('a', { className: cls, href }, label);
+    }
+
+    function showAccount() {
+        if (busy) return;
+        const wasOver = over;
+        over = true;
+        clearHint();
+        const back = button(user ? 'Back to the game' : 'Keep playing as a guest', () => { closeModal(); over = wasOver; if (!over) armHint(); }, user ? 'btn' : 'btn ghost');
+        if (user) {
+            const token = document.querySelector('meta[name="csrf-token"]');
+            const out = h('button', { className: 'btn ghost', type: 'submit' }, 'Log out');
+            openModal(
+                h('div', { className: 'big' }, '👤'),
+                h('h2', {}, user.name),
+                h('p', {}, 'You are logged in. Your scores go on the leaderboard under this name automatically.'),
+                back,
+                h('form', { method: 'post', action: '/logout', className: 'inline' },
+                    h('input', { type: 'hidden', name: '_token', value: token ? token.content : '' }), out),
+            );
+        } else {
+            openModal(
+                h('div', { className: 'big' }, '👤'),
+                h('h2', {}, 'Play under your own name'),
+                h('p', {}, 'An account is free. It reserves your player name and saves your scores to the leaderboard without typing it each time. Your current run stays on this device either way.'),
+                link('Log in', '/login'),
+                link('Create an account', '/register', 'btn ghost'),
+                back,
+            );
+        }
+    }
+
     // Restarting throws away a run, so it asks first once there is one to lose.
     function confirmRestart() {
         if (busy) return;
@@ -973,25 +1008,36 @@
             const final = total + score;
             saveBest(final);
             sfx.lose();
-            const name = h('input', { type: 'text', maxLength: 16, placeholder: 'Your name', value: store.get('name') || '' });
-            const note = h('p', { className: 'note' }, '');
-            const save = button('Save score', async () => {
-                const n = name.value.trim();
-                if (!n) { name.focus(); return; }
-                save.disabled = true;
-                store.set('name', n);
-                const rank = await submitScore(n, final, level);
-                note.textContent = rank ? 'Saved — you are #' + rank + ' of all time!' : 'Could not save — try again.';
-                save.disabled = !!rank;
-            }, 'btn ghost');
-            openModal(
+            const note = h('p', { className: 'note', role: 'status' }, '');
+            const kids = [
                 h('div', { className: 'big' }, '🍭'),
                 h('h2', {}, 'Game over'),
                 h('p', {}, 'No lives left. You reached level ' + level + ' with a final score of ' + final.toLocaleString() + '.'),
-                h('div', { className: 'row' }, name, save),
-                note,
-                button('Play again', startRun),
-            );
+            ];
+            if (user) {
+                // Signed in: nothing to type, the score goes up under the account's name.
+                note.textContent = 'Saving your score…';
+                submitScore(user.name, final, level).then((r) => {
+                    note.textContent = r.rank
+                        ? 'Saved as ' + user.name + ' — you are #' + r.rank + ' of all time!'
+                        : 'Could not save your score. ' + r.error;
+                });
+                kids.push(note);
+            } else {
+                const name = h('input', { type: 'text', maxLength: 16, placeholder: 'Your name', value: store.get('name') || '', ariaLabel: 'Your name' });
+                const save = button('Save score', async () => {
+                    const n = name.value.trim();
+                    if (!n) { name.focus(); return; }
+                    save.disabled = true;
+                    store.set('name', n);
+                    const r = await submitScore(n, final, level);
+                    note.textContent = r.rank ? 'Saved — you are #' + r.rank + ' of all time!' : r.error;
+                    save.disabled = !!r.rank;
+                }, 'btn ghost');
+                kids.push(h('div', { className: 'row' }, name, save), note,
+                    h('p', { className: 'note' }, h('a', { href: '/register' }, 'Create an account'), ' to keep your name on the leaderboard.'));
+            }
+            openModal(...kids, button('Play again', startRun));
         }
     }
 
@@ -1004,9 +1050,9 @@
         }
         let marked = false;
         list.replaceChildren(...rows.map((s) => h('li', {
-            className: mine && !marked && s.name === mine.name && Number(s.score) === mine.score && (marked = true) ? 'me' : '',
+            className: s.mine || (mine && !marked && s.name === mine.name && Number(s.score) === mine.score && (marked = true)) ? 'me' : '',
         },
-            h('span', { className: 'who' }, String(s.name)),
+            h('span', { className: 'who', title: s.member ? 'Registered player' : '' }, String(s.name) + (s.member ? ' ✓' : '')),
             h('span', { className: 'lv' }, 'Lv ' + s.level),
             h('b', {}, Number(s.score).toLocaleString()),
         )));
@@ -1031,11 +1077,14 @@
                 },
                 body: JSON.stringify({ name, score: value, level: lvl }),
             });
-            if (!res.ok) return 0;
-            const data = await res.json();
+            const data = await res.json().catch(() => ({}));
+            if (!res.ok) {
+                const first = data.errors && Object.values(data.errors)[0];
+                return { rank: 0, error: (first && first[0]) || 'Could not save — try again.' };
+            }
             renderScores(data.top, { name, score: value });
-            return data.rank || 1;
-        } catch { return 0; }
+            return { rank: data.rank || 1, error: '' };
+        } catch { return { rank: 0, error: 'Could not save — check your connection and try again.' }; }
     }
 
     /* ---------- boot ---------- */
@@ -1044,6 +1093,7 @@
     $('hintBtn').addEventListener('click', showHint);
     $('restart').addEventListener('click', confirmRestart);
     $('help').addEventListener('click', showHelp);
+    $('account').addEventListener('click', showAccount);
     $('shuffle').addEventListener('click', useShuffle);
     $('hammer').addEventListener('click', () => {
         if (busy || over || boosters.hammer <= 0) return;
@@ -1053,7 +1103,7 @@
         if (armed) banner('Tap a candy to smash it');
     });
 
-    saveBest(0);
+    saveBest(Number(window.__best) || 0);
     loadScores();
     const saved = loadRun();
     if (saved) ({ level, total, boosters, lives } = saved);

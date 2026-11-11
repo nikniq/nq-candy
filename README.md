@@ -20,6 +20,7 @@ Then open http://localhost:8000.
 - `public_html/game/` — the game itself (`game.js`, `game.css`); plain JS, no build step.
 - `resources/views/game.blade.php` — the page.
 - `app/Http/Controllers/ScoreController.php` — leaderboard API (`GET /scores`, `POST /scores`).
+- `app/Http/Controllers/AuthController.php` — accounts (`/register`, `/login`, `POST /logout`). Signed-in players score under their reserved name; guests can still play and save a score with a typed name. There is no password reset yet (it needs outgoing mail).
 
 ## Deploy
 

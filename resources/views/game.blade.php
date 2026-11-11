@@ -20,9 +20,12 @@
 <body>
 <div class="app">
     <header class="top">
-        <h1><span class="logo">🍬</span> Sweet Swap</h1>
+        <h1><span class="logo">🍬</span> <span class="name">Sweet Swap</span></h1>
         <div class="top-actions">
             <span id="lives" class="lives" role="img" aria-label="3 of 3 lives left">❤️❤️❤️</span>
+            <button id="account" class="icon-btn @if ($player) signed-in @endif"
+                    aria-label="{{ $player ? 'Account: '.$player['name'] : 'Log in or create an account' }}"
+                    title="{{ $player ? 'Logged in as '.$player['name'] : 'Log in or create an account' }}">{{ $player ? mb_strtoupper(mb_substr($player['name'], 0, 1)) : '👤' }}</button>
             <button id="help" class="icon-btn" aria-label="How to play" title="How to play">?</button>
             <button id="restart" class="icon-btn" aria-label="Start a new run" title="Start a new run">↻</button>
             <button id="mute" class="icon-btn" aria-label="Toggle sound" title="Sound on/off">🔊</button>
@@ -73,12 +76,20 @@
             </div>
         </aside>
     </main>
+
+    <footer class="foot">
+        <a href="https://nikniq.com" rel="noopener">← Back to nikniq.com</a>
+    </footer>
 </div>
 
 <div id="modal" class="modal"><div class="card" id="card" role="dialog" aria-modal="true" aria-label="Game message"></div></div>
 <div id="sr" class="sr-only" aria-live="polite"></div>
 <div id="confetti" aria-hidden="true"></div>
 
+<script>
+    window.__user = @json($player);
+    window.__best = @json($best);
+</script>
 <script src="{{ asset('game/game.js') }}?v={{ filemtime(public_path('game/game.js')) }}"></script>
 </body>
 </html>
