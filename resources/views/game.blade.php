@@ -28,7 +28,8 @@
                     title="{{ $player ? 'Logged in as '.$player['name'] : 'Log in or create an account' }}">{{ $player ? mb_strtoupper(mb_substr($player['name'], 0, 1)) : '👤' }}</button>
             <button id="help" class="icon-btn" aria-label="How to play" title="How to play">?</button>
             <button id="restart" class="icon-btn" aria-label="Start a new run" title="Start a new run">↻</button>
-            <button id="mute" class="icon-btn" aria-label="Toggle sound" title="Sound on/off">🔊</button>
+            <button id="music" class="icon-btn" aria-label="Music" aria-pressed="true" title="Music on/off">🎵</button>
+            <button id="mute" class="icon-btn" aria-label="Toggle sound effects" title="Sound effects on/off">🔊</button>
         </div>
     </header>
 

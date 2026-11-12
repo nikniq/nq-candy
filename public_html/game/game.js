@@ -36,14 +36,25 @@
     }
 
     /* ---------- sound ---------- */
+    // One audio context for effects and music; browsers only allow it after a tap or key press.
+    const audio = {
+        ctx: null,
+        get() {
+            try {
+                this.ctx = this.ctx || new (window.AudioContext || window.webkitAudioContext)();
+                if (this.ctx.state === 'suspended') this.ctx.resume();
+                return this.ctx;
+            } catch { return null; }
+        },
+    };
+
     const sfx = (() => {
-        let ctx = null;
         let muted = store.get('muted') === '1';
         const tone = (f, d, type = 'sine', v = 0.12, delay = 0, f2 = 0) => {
             if (muted || FAST) return;
+            const ctx = audio.get();
+            if (!ctx) return;
             try {
-                ctx = ctx || new (window.AudioContext || window.webkitAudioContext)();
-                if (ctx.state === 'suspended') ctx.resume();
                 const t = ctx.currentTime + delay;
                 const o = ctx.createOscillator(), g = ctx.createGain();
                 o.type = type;
@@ -70,6 +81,130 @@
             boom() { tone(170, 0.4, 'sawtooth', 0.16, 0, 40); tone(900, 0.25, 'triangle', 0.06, 0, 200); },
             win() { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.28, 'triangle', 0.14, i * 0.12)); },
             lose() { [392, 330, 262].forEach((f, i) => tone(f, 0.35, 'sine', 0.14, i * 0.18)); },
+        };
+    })();
+
+    /* ---------- music ---------- */
+    // A looping tune synthesised in the browser, so there is no audio file to download.
+    // Sixteen bars: eight of bass, chords and arpeggio, then the same again with the melody on top.
+    const music = (() => {
+        const LEVEL = 0.2;
+        const hz = (m) => 440 * 2 ** ((m - 69) / 12);
+        const BARS = [ // bass note, chord tones (MIDI numbers)
+            [48, [60, 64, 67, 72]], [47, [59, 62, 67, 71]], [45, [57, 60, 64, 69]], [41, [57, 60, 65, 69]],
+            [48, [60, 64, 67, 72]], [41, [60, 65, 69, 72]], [43, [59, 62, 67, 71]], [43, [59, 62, 65, 67]],
+        ];
+        const ARP = [0, 2, 1, 2, 3, 2, 1, 2];
+        const LEAD = [
+            [76, 0, 79, 0, 84, 0, 79, 76], [74, 0, 79, 0, 83, 0, 79, 0],
+            [72, 0, 76, 0, 81, 0, 76, 72], [69, 0, 72, 0, 77, 0, 76, 74],
+            [76, 0, 79, 0, 84, 0, 86, 84], [81, 0, 77, 0, 81, 0, 84, 0],
+            [83, 0, 79, 0, 74, 0, 79, 83], [86, 0, 0, 83, 0, 79, 74, 0],
+        ];
+        let on = store.get('music') !== '0';
+        let out = null, noise = null, timer = 0, step = 0, nextT = 0, tense = false;
+
+        function note(ctx, m, t, d, type, v, attack = 0.012) {
+            const o = ctx.createOscillator(), g = ctx.createGain();
+            o.type = type;
+            o.frequency.value = hz(m);
+            g.gain.setValueAtTime(0.0001, t);
+            g.gain.linearRampToValueAtTime(v, t + attack);
+            g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+            o.connect(g); g.connect(out);
+            o.start(t); o.stop(t + d + 0.03);
+        }
+
+        function kick(ctx, t) {
+            const o = ctx.createOscillator(), g = ctx.createGain();
+            o.frequency.setValueAtTime(130, t);
+            o.frequency.exponentialRampToValueAtTime(45, t + 0.12);
+            g.gain.setValueAtTime(0.5, t);
+            g.gain.exponentialRampToValueAtTime(0.0001, t + 0.16);
+            o.connect(g); g.connect(out);
+            o.start(t); o.stop(t + 0.2);
+        }
+
+        function hat(ctx, t, v) {
+            if (!noise) {
+                noise = ctx.createBuffer(1, ctx.sampleRate * 0.05, ctx.sampleRate);
+                const d = noise.getChannelData(0);
+                for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+            }
+            const src = ctx.createBufferSource(), f = ctx.createBiquadFilter(), g = ctx.createGain();
+            src.buffer = noise;
+            f.type = 'highpass'; f.frequency.value = 7000;
+            g.gain.setValueAtTime(v, t);
+            g.gain.exponentialRampToValueAtTime(0.0001, t + 0.045);
+            src.connect(f); f.connect(g); g.connect(out);
+            src.start(t);
+        }
+
+        function play(ctx, s, t, len) {
+            const [bass, tones] = BARS[(s >> 3) % 8];
+            const i = s % 8, withLead = s >= 64;
+            if (i === 0 || i === 4) { kick(ctx, t); note(ctx, bass, t, len * 3, 'triangle', 0.5); note(ctx, bass + 12, t, len * 2, 'sine', 0.2); }
+            if (i === 6) note(ctx, bass + 12, t, len, 'triangle', 0.3);
+            if (i === 0) tones.slice(0, 3).forEach((m) => note(ctx, m, t, len * 8, 'sine', 0.09, len * 2));
+            if (i % 2) hat(ctx, t, i === 3 || i === 7 ? 0.16 : 0.09);
+            note(ctx, tones[ARP[i]], t, len * 1.1, 'triangle', withLead ? 0.16 : 0.26);
+            const m = withLead && LEAD[(s >> 3) % 8][i];
+            if (m) { note(ctx, m, t, len * 1.9, 'sine', 0.34); note(ctx, m, t, len * 1.2, 'triangle', 0.12); }
+        }
+
+        function schedule() {
+            const ctx = audio.ctx;
+            if (!ctx || ctx.state !== 'running') return;
+            if (nextT < ctx.currentTime) nextT = ctx.currentTime + 0.06;
+            const len = 60 / (tense ? 124 : 106) / 2; // one eighth note
+            try {
+                while (nextT < ctx.currentTime + 0.5) {
+                    play(ctx, step, nextT, len);
+                    nextT += len;
+                    step = (step + 1) % 128;
+                }
+            } catch { /* audio unavailable */ }
+        }
+
+        function start() {
+            if (!on || FAST || timer || document.hidden) return;
+            const ctx = audio.get();
+            if (!ctx) return;
+            try {
+                if (!out) { out = ctx.createGain(); out.gain.value = 0; out.connect(ctx.destination); }
+                out.gain.cancelScheduledValues(ctx.currentTime);
+                out.gain.setTargetAtTime(LEVEL, ctx.currentTime, 0.3);
+            } catch { return; }
+            timer = setInterval(schedule, 110);
+            schedule();
+        }
+
+        function stop() {
+            if (!timer) return;
+            clearInterval(timer); timer = 0;
+            try {
+                out.gain.cancelScheduledValues(audio.ctx.currentTime);
+                out.gain.setTargetAtTime(0, audio.ctx.currentTime, 0.06);
+            } catch { /* audio unavailable */ }
+        }
+
+        return {
+            get on() { return on; },
+            start,
+            stop,
+            toggle() { on = !on; store.set('music', on ? '1' : '0'); if (on) start(); else stop(); return on; },
+            // The tune picks up speed when moves are running out.
+            set tense(v) { tense = !!v; },
+            // Drop back for a moment so a win or lose jingle is heard clearly.
+            duck(seconds) {
+                if (!timer) return;
+                try {
+                    const t = audio.ctx.currentTime;
+                    out.gain.cancelScheduledValues(t);
+                    out.gain.setTargetAtTime(LEVEL * 0.25, t, 0.05);
+                    out.gain.setTargetAtTime(LEVEL, t + seconds, 0.4);
+                } catch { /* audio unavailable */ }
+            },
         };
     })();
 
@@ -357,10 +492,11 @@
     function particles(r, c, type) {
         if (CALM) return;
         const color = type < 0 ? '#ffffff' : COLORS[type];
-        for (let i = 0; i < 5; i++) {
-            const ang = Math.random() * Math.PI * 2, dist = 30 + Math.random() * 50;
-            fx('spark', {
-                left: pct(c), top: pct(r), background: color,
+        for (let i = 0; i < 6; i++) {
+            const ang = Math.random() * Math.PI * 2, dist = 30 + Math.random() * 55;
+            fx(i < 2 ? 'spark star' : 'spark', {
+                left: pct(c), top: pct(r), background: color, color,
+                '--sz': (i < 2 ? 14 : 5 + Math.random() * 7) + 'px',
                 '--dx': Math.cos(ang) * dist + 'px', '--dy': Math.sin(ang) * dist + 'px',
             }, '', 600);
         }
@@ -426,6 +562,7 @@
         $('level').textContent = level;
         $('moves').textContent = moves;
         $('moves').classList.toggle('low', moves <= 5 && !over);
+        music.tense = moves <= 5 && !over;
         tweenScore();
         if (bump) retrigger($('score'), 'bump');
 
@@ -978,7 +1115,7 @@
             saveBest(total);
             boosters.hammer++;
             if (stars === 3) boosters.shuffle++;
-            sfx.win(); confetti();
+            sfx.win(); music.duck(1.2); confetti();
             if (!FAST) for (let i = 0; i < stars; i++) setTimeout(() => sfx.tick(i * 3), 500 + i * 260);
             openModal(
                 h('div', { className: 'stars', role: 'img', ariaLabel: stars + ' of 3 stars' },
@@ -993,7 +1130,7 @@
         } else if (lives > 1) {
             lives--;
             saveRun();
-            sfx.lose();
+            sfx.lose(); music.duck(1.4);
             updateHud();
             openModal(
                 h('div', { className: 'big' }, '💔'),
@@ -1007,7 +1144,7 @@
             updateHud();
             const final = total + score;
             saveBest(final);
-            sfx.lose();
+            sfx.lose(); music.duck(1.4);
             const note = h('p', { className: 'note', role: 'status' }, '');
             const kids = [
                 h('div', { className: 'big' }, '🍭'),
@@ -1090,6 +1227,21 @@
     /* ---------- boot ---------- */
     $('mute').textContent = sfx.muted ? '🔇' : '🔊';
     $('mute').addEventListener('click', () => { $('mute').textContent = sfx.toggle() ? '🔇' : '🔊'; });
+    const musicBtn = $('music');
+    const showMusic = () => { musicBtn.classList.toggle('off', !music.on); musicBtn.setAttribute('aria-pressed', String(music.on)); };
+    showMusic();
+    musicBtn.addEventListener('click', () => { music.toggle(); showMusic(); });
+    if (!FAST) {
+        // Browsers block audio until the player interacts, so the tune starts on the first tap or key.
+        ['pointerdown', 'keydown'].forEach((ev) => window.addEventListener(ev, () => music.start(), { passive: true }));
+        document.addEventListener('visibilitychange', () => { if (document.hidden) music.stop(); else if (audio.ctx) music.start(); });
+        // A glint crosses a random sweet now and then so the board never looks frozen.
+        if (!CALM) setInterval(() => {
+            if (over || busy || document.hidden || !grid) return;
+            const t = grid[Math.floor(Math.random() * SIZE)][Math.floor(Math.random() * SIZE)];
+            if (t && t.special !== 'rainbow') retrigger(t.inner, 'shine');
+        }, 850);
+    }
     $('hintBtn').addEventListener('click', showHint);
     $('restart').addEventListener('click', confirmRestart);
     $('help').addEventListener('click', showHelp);

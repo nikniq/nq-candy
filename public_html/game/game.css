@@ -13,17 +13,19 @@
 * { box-sizing: border-box; }
 
 html, body { margin: 0; min-height: 100%; }
-html { background: #2a0f4a; }
+html {
+    background:
+        radial-gradient(circle at 15% 10%, rgba(255, 95, 162, .35), transparent 40%),
+        radial-gradient(circle at 85% 90%, rgba(74, 168, 255, .3), transparent 45%),
+        linear-gradient(160deg, var(--bg1), var(--bg2)) #2a0f4a;
+    background-attachment: fixed;
+}
 .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
 body {
     font-family: ui-rounded, "SF Pro Rounded", "Nunito", "Segoe UI", system-ui, sans-serif;
     color: var(--ink);
-    background:
-        radial-gradient(circle at 15% 10%, rgba(255, 95, 162, .35), transparent 40%),
-        radial-gradient(circle at 85% 90%, rgba(74, 168, 255, .3), transparent 45%),
-        linear-gradient(160deg, var(--bg1), var(--bg2));
-    background-attachment: fixed;
+    position: relative;
     -webkit-user-select: none;
     user-select: none;
     overflow-x: hidden;
@@ -31,9 +33,31 @@ body {
     -webkit-tap-highlight-color: transparent;
 }
 
+/* Backdrop: soft sugar bubbles drifting, and a field of twinkling sprinkles. */
+body::before, body::after { content: ""; position: fixed; inset: -10%; z-index: -1; pointer-events: none; }
+body::before {
+    background:
+        radial-gradient(circle at 12% 78%, rgba(255, 217, 61, .16) 0 7%, transparent 7.4%),
+        radial-gradient(circle at 82% 18%, rgba(255, 120, 180, .2) 0 9%, transparent 9.4%),
+        radial-gradient(circle at 68% 72%, rgba(120, 190, 255, .16) 0 6%, transparent 6.4%),
+        radial-gradient(circle at 30% 22%, rgba(190, 130, 255, .2) 0 5%, transparent 5.4%),
+        radial-gradient(circle at 48% 96%, rgba(120, 255, 180, .12) 0 8%, transparent 8.4%);
+    filter: blur(6px);
+    animation: drift 26s ease-in-out infinite alternate;
+}
+body::after {
+    background:
+        radial-gradient(circle, #fff 0 1.2px, transparent 1.8px) 0 0 / 190px 170px,
+        radial-gradient(circle, #ffd93d 0 1.4px, transparent 2px) 60px 90px / 230px 210px,
+        radial-gradient(circle, #ff9ac6 0 1.2px, transparent 1.8px) 120px 30px / 270px 250px;
+    opacity: .5;
+    animation: twinkle 5s ease-in-out infinite alternate;
+}
+
 .app { max-width: 980px; margin: 0 auto; padding: 14px 16px 32px; }
 
 .top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.top h1 .name { background: linear-gradient(180deg, #fff 20%, #ffd0e6 55%, #ff8cc0); -webkit-background-clip: text; background-clip: text; color: transparent; text-shadow: none; filter: drop-shadow(0 3px 0 rgba(120, 20, 80, .55)); }
 .top h1 { margin: 0; font-size: clamp(1.5rem, 4vw, 2.1rem); letter-spacing: .5px; text-shadow: 0 3px 0 rgba(0, 0, 0, .25); }
 .logo { display: inline-block; animation: bob 2.4s ease-in-out infinite; }
 
@@ -59,22 +83,22 @@ body {
 .chip { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .chip.done { color: #7dffa8; }
 .mini { position: relative; display: inline-block; width: 1.5em; height: 1.5em; flex: none; }
-.mini .candy { inset: 4%; box-shadow: none; }
+.mini .candy { inset: 2%; }
 
 /* Board */
-.board-wrap { position: relative; padding: 10px; border-radius: 22px; background: rgba(20, 5, 40, .55); border: 2px solid var(--line); box-shadow: 0 18px 40px rgba(0, 0, 0, .4), inset 0 0 30px rgba(255, 95, 162, .12); }
+.board-wrap { position: relative; padding: 10px; border-radius: 24px; border: 3px solid transparent; background: linear-gradient(170deg, #3a1163, #24083f) padding-box, linear-gradient(140deg, #ff8cc0, #ffd93d 30%, #ff5fa2 55%, #7ab8ff 80%, #c58cff) border-box; box-shadow: 0 18px 40px rgba(0, 0, 0, .45), 0 0 26px rgba(255, 95, 162, .28), inset 0 0 34px rgba(0, 0, 0, .45); }
 .board-wrap.shake { animation: shake .35s; }
 
 #board {
     position: relative; width: 100%; aspect-ratio: 1; overflow: hidden; border-radius: 14px;
     touch-action: none; cursor: pointer;
-    background: repeating-conic-gradient(rgba(255, 255, 255, .06) 0 25%, transparent 0 50%) 0 0 / 25% 25%;
+    background: url(art/cell.svg) 0 0 / 12.5% 12.5%;
 }
 
 #board.smash { cursor: crosshair; box-shadow: inset 0 0 0 3px var(--gold); }
 
-.frost { position: absolute; width: 12.5%; height: 12.5%; border-radius: 16%; pointer-events: none; transition: opacity .3s, transform .3s; background: linear-gradient(135deg, rgba(210, 240, 255, .55), rgba(150, 205, 255, .3)); box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .65); }
-.frost.f2 { background: linear-gradient(135deg, rgba(235, 248, 255, .92), rgba(170, 215, 255, .75)); box-shadow: inset 0 0 0 3px #fff, inset 0 0 0 7px rgba(120, 180, 255, .55); }
+.frost { position: absolute; width: 12.5%; height: 12.5%; border-radius: 18%; pointer-events: none; transition: opacity .3s, transform .3s; background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, .5) 36% 40%, transparent 46% 58%, rgba(255, 255, 255, .35) 62% 64%, transparent 70%), linear-gradient(135deg, rgba(215, 242, 255, .6), rgba(150, 205, 255, .32)); box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .7), inset 0 0 12px rgba(255, 255, 255, .45); }
+.frost.f2 { background: linear-gradient(115deg, transparent 30%, rgba(255, 255, 255, .7) 36% 40%, transparent 46% 58%, rgba(255, 255, 255, .5) 62% 64%, transparent 70%), linear-gradient(135deg, rgba(235, 248, 255, .92), rgba(170, 215, 255, .75)); box-shadow: inset 0 0 0 3px #fff, inset 0 0 0 7px rgba(120, 180, 255, .55); }
 .frost.gone { opacity: 0; transform: scale(1.4); }
 
 .cursor { position: absolute; display: none; width: 12.5%; height: 12.5%; border: 3px dashed var(--gold); border-radius: 22%; transition: left .1s, top .1s; z-index: 4; }
@@ -92,36 +116,38 @@ body {
 .tile.selected .candy { animation: wiggle .5s ease-in-out infinite; }
 .tile.hint .candy { animation: hint .7s ease-in-out infinite; }
 
-/* Candies: each colour has its own shape so they are easy to tell apart */
-.candy { position: absolute; inset: 11%; overflow: hidden; box-shadow: inset 0 -6px 10px rgba(0, 0, 0, .25), inset 0 4px 8px rgba(255, 255, 255, .35); }
-.candy::before { content: ""; position: absolute; left: 18%; top: 12%; width: 38%; height: 26%; border-radius: 50%; background: rgba(255, 255, 255, .55); filter: blur(2px); transform: rotate(-25deg); }
+/* Candies: each colour is its own drawn sweet (art/*.svg) so they are easy to tell apart.
+   The same drawing masks the element, so stripes and shine stay inside the sweet's outline. */
+.candy { position: absolute; inset: 7%; overflow: hidden; background: center / contain no-repeat; -webkit-mask: center / contain no-repeat; mask: center / contain no-repeat; }
+.c0 { background-image: url(art/c0.svg); -webkit-mask-image: url(art/c0.svg); mask-image: url(art/c0.svg); }
+.c1 { background-image: url(art/c1.svg); -webkit-mask-image: url(art/c1.svg); mask-image: url(art/c1.svg); inset: 9%; }
+.c2 { background-image: url(art/c2.svg); -webkit-mask-image: url(art/c2.svg); mask-image: url(art/c2.svg); inset: 4%; }
+.c3 { background-image: url(art/c3.svg); -webkit-mask-image: url(art/c3.svg); mask-image: url(art/c3.svg); }
+.c4 { background-image: url(art/c4.svg); -webkit-mask-image: url(art/c4.svg); mask-image: url(art/c4.svg); }
+.c5 { background-image: url(art/c5.svg); -webkit-mask-image: url(art/c5.svg); mask-image: url(art/c5.svg); }
 
-.c0 { background: radial-gradient(circle at 35% 30%, #ff9db0, #ff4d6d 55%, #c9184a); border-radius: 50%; }
-.c1 { background: linear-gradient(145deg, #ffc27a, #ff9a3c 50%, #e2711d); border-radius: 26%; }
-.c2 { background: linear-gradient(160deg, #fff3a8, #ffd93d 50%, #e0a800); clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%); inset: 6%; }
-.c2::before { left: 34%; top: 22%; width: 24%; height: 18%; }
-.c3 { background: linear-gradient(160deg, #a8f5c0, #4cd97b 50%, #1f9d55); clip-path: polygon(25% 4%, 75% 4%, 100% 50%, 75% 96%, 25% 96%, 0 50%); }
-.c3::before { left: 28%; }
-.c4 { background: linear-gradient(160deg, #a5d4ff, #4aa8ff 50%, #1c6fd1); border-radius: 50% 50% 46% 46% / 72% 72% 28% 28%; }
-.c4::before { left: 30%; top: 20%; width: 26%; }
-.c5 { background: linear-gradient(145deg, #dcb3ff, #b56bff 50%, #7b2cbf); border-radius: 55% 10% 55% 10%; }
+/* A glint that sweeps across a random sweet now and then. */
+.candy::before { content: ""; position: absolute; inset: -20% -60%; background: linear-gradient(110deg, transparent 42%, rgba(255, 255, 255, .85) 50%, transparent 58%); transform: translateX(-70%); opacity: 0; }
+.candy.shine::before { animation: shine .7s ease-out; }
+.candy.rainbow::before { display: none; }
 
 /* Specials */
-.candy::after { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-weight: 900; text-shadow: 0 0 6px rgba(0, 0, 0, .6); }
-.sp-h::after { content: ""; background: repeating-linear-gradient(0deg, transparent 0 14%, rgba(255, 255, 255, .85) 14% 26%); animation: glow 1s ease-in-out infinite; }
-.sp-v::after { content: ""; background: repeating-linear-gradient(90deg, transparent 0 14%, rgba(255, 255, 255, .85) 14% 26%); animation: glow 1s ease-in-out infinite; }
-.sp-bomb::after { content: "✸"; font-size: clamp(14px, 4.5vmin, 30px); background: radial-gradient(circle, rgba(0, 0, 0, .45) 0 38%, transparent 40%); animation: glow .7s ease-in-out infinite; }
-.sp-bomb, .sp-h, .sp-v { filter: saturate(1.3) brightness(1.08); }
+.candy::after { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-weight: 900; }
+.sp-h::after { content: ""; background: repeating-linear-gradient(0deg, transparent 0 13%, rgba(255, 255, 255, .92) 13% 25%); animation: glow 1s ease-in-out infinite; }
+.sp-v::after { content: ""; background: repeating-linear-gradient(90deg, transparent 0 13%, rgba(255, 255, 255, .92) 13% 25%); animation: glow 1s ease-in-out infinite; }
+.sp-bomb::after { content: "✸"; color: #ffd93d; font-size: clamp(12px, 3.6vmin, 24px); line-height: 1; text-shadow: 0 0 6px #ff9a3c; background: radial-gradient(circle, #2b0d3a 0 34%, rgba(255, 255, 255, .95) 36% 42%, transparent 44%); animation: bombPulse .7s ease-in-out infinite; }
+.sp-bomb, .sp-h, .sp-v { filter: saturate(1.25) brightness(1.1); }
 
-.candy.rainbow { border-radius: 50%; background: conic-gradient(#ff4d6d, #ff9a3c, #ffd93d, #4cd97b, #4aa8ff, #b56bff, #ff4d6d); animation: spin 2.4s linear infinite; box-shadow: 0 0 14px rgba(255, 255, 255, .8), inset 0 0 8px rgba(255, 255, 255, .6); }
-.candy.rainbow::after { content: ""; inset: 30%; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff, #ffe8f4); }
+.candy.rainbow { inset: 9%; border-radius: 50%; background: conic-gradient(#ff4d6d, #ff9a3c, #ffd93d, #4cd97b, #4aa8ff, #b56bff, #ff4d6d); animation: spin 2.4s linear infinite; box-shadow: 0 0 16px rgba(255, 255, 255, .85), inset 0 0 0 3px rgba(255, 255, 255, .7), inset 0 0 10px rgba(255, 255, 255, .6); }
+.candy.rainbow::after { content: ""; inset: 27%; border-radius: 50%; background: radial-gradient(circle at 35% 30%, #fff, #ffe0f0 60%, #ffb3d6); box-shadow: 0 0 8px #fff; }
 
 .candy.spawn { animation: spawn .35s cubic-bezier(.34, 1.56, .64, 1); }
 .candy.rainbow.spawn { animation: spawn .35s cubic-bezier(.34, 1.56, .64, 1), spin 2.4s linear .35s infinite; }
 .candy.pop, .candy.rainbow.pop { animation: pop .26s ease-in forwards; }
 
 /* Effects */
-.spark { position: absolute; width: 9px; height: 9px; margin: -4px; border-radius: 50%; animation: spark .6s ease-out forwards; }
+.spark { position: absolute; width: var(--sz, 9px); height: var(--sz, 9px); margin: calc(var(--sz, 9px) / -2); border-radius: 50%; box-shadow: 0 0 8px currentColor; animation: spark .6s ease-out forwards; }
+.spark.star { border-radius: 0; box-shadow: none; clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%); background: #fff !important; }
 .popup { position: absolute; transform: translate(-50%, -50%); font-weight: 900; font-size: clamp(1rem, 3.5vmin, 1.6rem); color: #fff; text-shadow: 0 2px 0 #c9184a, 0 0 12px rgba(255, 95, 162, .9); white-space: nowrap; animation: floatUp .9s ease-out forwards; z-index: 3; }
 .beam { position: absolute; background: linear-gradient(90deg, transparent, #fff, transparent); box-shadow: 0 0 24px #fff; animation: beam .45s ease-out forwards; }
 .beam.h { left: 0; width: 100%; height: 12.5%; }
@@ -146,6 +172,8 @@ body {
 .icon-btn { width: 44px; height: 44px; font-size: 1.25rem; background: var(--panel); border: 1px solid var(--line); }
 /* body turns text selection off for the board; Safari then refuses typing unless inputs opt back in. */
 input, textarea { -webkit-user-select: text; user-select: text; }
+.icon-btn.off { opacity: .5; text-decoration: line-through; position: relative; }
+.icon-btn.off::after { content: ""; position: absolute; left: 22%; right: 22%; top: 50%; height: 3px; margin-top: -1.5px; border-radius: 2px; background: #fff; transform: rotate(-45deg); }
 .icon-btn.signed-in { background: linear-gradient(180deg, #ff7bb5, #ff3d8b); border-color: transparent; font-weight: 900; }
 a.btn { display: inline-block; text-decoration: none; }
 .card form.inline { display: inline; }
@@ -219,7 +247,11 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 @keyframes glow { 50% { opacity: .55; } }
 @keyframes spin { to { transform: rotate(360deg); } }
 @keyframes spawn { from { transform: scale(0); } }
-@keyframes pop { 30% { transform: scale(1.25); opacity: 1; } to { transform: scale(0); opacity: 0; } }
+@keyframes pop { 30% { transform: scale(1.25); opacity: 1; filter: brightness(1.9); } to { transform: scale(0) rotate(40deg); opacity: 0; filter: brightness(2.4); } }
+@keyframes shine { from { transform: translateX(-70%); opacity: 1; } to { transform: translateX(70%); opacity: 1; } }
+@keyframes bombPulse { 50% { transform: scale(1.18); } }
+@keyframes drift { to { transform: translate(4%, -5%) rotate(4deg); } }
+@keyframes twinkle { from { opacity: .15; } to { opacity: .6; } }
 @keyframes spark { to { transform: translate(var(--dx), var(--dy)) scale(0); opacity: 0; } }
 @keyframes floatUp { 20% { transform: translate(-50%, -70%) scale(1.25); } to { transform: translate(-50%, -190%) scale(1); opacity: 0; } }
 @keyframes beam { from { opacity: 1; } to { opacity: 0; transform: scale(1.05); } }
@@ -239,7 +271,8 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
     .app { padding: 10px 10px 24px; }
     .top h1 { font-size: 1.1rem; white-space: nowrap; }
     .top h1 .name { display: none; }
-    .top-actions { gap: 6px; }
+    .top-actions { gap: 5px; }
+    .icon-btn { width: 38px; height: 38px; font-size: 1.05rem; }
     .lives { font-size: .9rem; letter-spacing: 0; }
     .hud { gap: 5px; }
     .stat { padding: 7px 3px; }
@@ -265,6 +298,7 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 }
 
 @media (prefers-reduced-motion: reduce) {
+    body::before, body::after, .candy.shine::before, .sp-bomb::after { animation: none; }
     .logo, .card .big, .candy.rainbow, .board-wrap.shake, .stat b.low, .card .stars i.on { animation: none; }
     .tile { transition-timing-function: ease-out; }
 }
